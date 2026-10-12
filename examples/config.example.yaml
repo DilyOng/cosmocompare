@@ -1,0 +1,37 @@
+# Example cosmocompare run configuration.
+#
+# One base-model chain is reweighted onto one or more extended models. Each new
+# parameter carries a target `prior`; give it a separate `proposal` only when you
+# want to draw it from something other than that prior (the weight correction is
+# applied automatically either way).
+
+global_settings:
+  # Path passed to anesthetic.read_chains for the base-model samples.
+  base_chain_path: /path/to/base/chains/lcdm_planck
+  # Reweight the posterior points (True) or the full nested run (False).
+  use_posterior: true
+  # Optional cap on the number of base samples, useful for a quick trial.
+  max_samples: null
+  # Where posteriors and likelihood arrays are written.
+  output_dir: cosmocompare_output
+  # Evaluate the target likelihood across processes for large samples.
+  use_parallel: true
+  n_cores: null
+  save_results: true
+
+target_models:
+  wlcdm:
+    # Cobaya input defining the extended model's likelihood.
+    yaml_path: /path/to/cobaya/wlcdm.yaml
+    new_params:
+      w:
+        prior:
+          type: uniform
+          min: -3.0
+          max: -0.333
+        # Optional: draw w from an informed proposal while keeping the uniform
+        # target prior above. Omit to sample straight from the prior.
+        proposal:
+          type: gaussian
+          mean: -1.0
+          std: 0.3
