@@ -68,6 +68,12 @@ class TargetModel:
 
         n_samples = len(augmented)
         for name, param in self.new_params.items():
+            # Only genuinely new parameters are drawn. A name that already exists
+            # is an existing parameter whose prior is being changed, not added:
+            # overwriting its sampled coordinate would corrupt the likelihood
+            # ratio, so its real values are kept and only re-weighted.
+            if name in augmented.columns:
+                continue
             augmented[name] = param.sample(n_samples, rng=rng)
         return augmented
 

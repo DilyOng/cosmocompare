@@ -23,7 +23,8 @@ from cosmocompare.evidence import (
 from cosmocompare.grid import all_jobs, index_of_job, job_by_index
 from cosmocompare.models import ModelFactory, TargetModel
 from cosmocompare.parameters import Parameter
-from cosmocompare.reweight import importance_sample, log_importance_weights
+from cosmocompare.prior import prior_log_ratio, reweight_prior
+from cosmocompare.reweight import apply_log_weights, log_importance_weights
 from cosmocompare.runner import Runner
 
 __all__ = [
@@ -34,11 +35,11 @@ __all__ = [
     "Runner",
     "TargetModel",
     "all_jobs",
+    "apply_log_weights",
     "chains_root",
     "effective_sample_size",
     "efficiency",
     "importance_evidence",
-    "importance_sample",
     "index_of_job",
     "job_by_index",
     "load_config",
@@ -46,4 +47,6 @@ __all__ = [
     "log_importance_weights",
     "nested_evidence",
     "output_root",
+    "prior_log_ratio",
+    "reweight_prior",
 ]

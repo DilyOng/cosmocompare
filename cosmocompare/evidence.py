@@ -165,13 +165,22 @@ def importance_evidence(
 
 
 def nested_evidence(samples, nsamples=1000):
-    """Read the evidence off an importance-sampled nested-sampling run.
+    """Read the evidence off a nested-sampling run with anesthetic's ``logZ``.
+
+    .. warning::
+
+       Valid only for a genuine nested run. It is **not** a correct target
+       evidence after re-weighting onto an added parameter or a changed prior,
+       because anesthetic re-sorts and recomputes the prior-volume geometry from
+       the base run's birth contours, which no longer describe the changed
+       measure. For those cases use :func:`importance_evidence` (or
+       :func:`cosmocompare.prior.reweight_prior`). This helper is kept only for
+       the special case of swapping the likelihood on the *same* parameter space.
 
     Parameters
     ----------
     samples : anesthetic.NestedSamples
-        A nested-sampling run, typically the output of
-        :func:`cosmocompare.reweight.importance_sample`.
+        A nested-sampling run.
     nsamples : int, optional
         Number of posterior draws of ``log Z`` used to estimate the
         nested-sampling uncertainty. Defaults to 1000.

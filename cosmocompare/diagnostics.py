@@ -58,9 +58,16 @@ def efficiency(weights):
     Returns
     -------
     float
-        ``effective_sample_size(weights) / len(weights)`` in ``[0, 1]``. A value
-        near 1 means evenly spread weights; a small value warns that the result
-        rests on few samples.
+        ``effective_sample_size(weights) / len(weights)`` in ``[0, 1]``.
+
+    Notes
+    -----
+    Interpret this only against a set of posterior weights. For a *full* nested
+    run, ``len(weights)`` counts the many low-weight dead points from early prior
+    exploration, so a healthy run has a small efficiency by construction; the
+    MCMC reading of "small means unreliable" does not apply. The absolute
+    :func:`effective_sample_size` is the quantity to watch for reweighting
+    reliability.
     """
     weights = np.asarray(weights, dtype=float)
     if weights.size == 0:

@@ -5,12 +5,14 @@ model, augments the full nested-sampling run with the model's new parameters,
 re-evaluates the likelihood, reweights, and records both the reweighted posterior
 and the evidence.
 
-The evidence is read from the reweighted *nested* run with anesthetic's own
-``logZ`` (:func:`cosmocompare.evidence.nested_evidence`), so the integral is
-taken over the whole prior volume the sampler traversed and the baseline
-``log Z`` is on the same footing. The ratio-based
-:func:`cosmocompare.evidence.importance_evidence`, with its bootstrap error and
-effective sample size, is kept alongside as a reliability diagnostic.
+The evidence is the importance-sampling ratio estimator
+(:func:`cosmocompare.evidence.importance_evidence`): it integrates over the full
+prior volume the base run traversed, marginalises the added parameters through
+the one-draw-per-sample augmentation, and keeps the baseline ``log Z`` on the
+same footing. It is *not* read from ``logZ`` of the re-weighted run: once a new
+parameter is bolted on, the samples no longer form a nested sequence, so that
+geometry is invalid. The re-weighted posterior is produced by multiplying the
+weights, not by recomputing contours.
 """
 
 from pathlib import Path
@@ -19,9 +21,9 @@ import numpy as np
 
 from cosmocompare.config import chains_root, load_config, output_root
 from cosmocompare.diagnostics import effective_sample_size, efficiency
-from cosmocompare.evidence import importance_evidence, nested_evidence
+from cosmocompare.evidence import importance_evidence
 from cosmocompare.models import ModelFactory
-from cosmocompare.reweight import importance_sample
+from cosmocompare.reweight import apply_log_weights, log_importance_weights
 
 
 class Runner:
@@ -97,17 +99,16 @@ class Runner:
         Returns
         -------
         dict
-            Result with the reweighted posterior, the nested-sampling evidence
-            (primary), the ratio-based evidence diagnostic, and the weight
+            Result with the re-weighted posterior, the evidence (ratio estimator
+            with its bootstrap error and effective sample size), and the weight
             diagnostics.
         """
         from cosmocompare.likelihood import LikelihoodCalculator
 
         model = ModelFactory.create(name, model_config)
 
-        # Augment the run with the new parameters *before* reweighting, so that
-        # anesthetic carries the new columns through and keeps them aligned with
-        # whatever samples the reweighting retains.
+        # Augment the run with the new parameters. Existing parameters whose prior
+        # is being changed keep their sampled values (see TargetModel).
         augmented = model.augment_samples(self.base_samples, rng=self.rng)
 
         calculator = LikelihoodCalculator(model.yaml_path)
@@ -116,19 +117,14 @@ class Runner:
             use_parallel=self.settings.get("use_parallel", True),
             n_cores=self.settings.get("n_cores"),
         )
+        base_logL = np.asarray(augmented.logL, dtype=float)
         correction = model.log_prior_correction(augmented)
 
-        posterior = importance_sample(augmented, logL_new, correction)
-
-        # Primary estimate: evidence of the reweighted nested run.
-        nested_logZ, nested_logZ_err = nested_evidence(posterior)
-
-        # Diagnostic: ratio estimator with a bootstrap error and effective
-        # sample size, a direct measure of reweighting reliability.
+        # Evidence: the importance-sampling ratio estimator (the valid route).
         base_logZ_draws = np.asarray(self.base_samples.logZ(1000), dtype=float)
-        diagnostic = importance_evidence(
+        evidence = importance_evidence(
             logL_new,
-            np.asarray(augmented.logL, dtype=float),
+            base_logL,
             base_weights=np.asarray(augmented.get_weights(), dtype=float),
             log_prior_correction=correction,
             base_log_evidence=float(base_logZ_draws.mean()),
@@ -136,13 +132,18 @@ class Runner:
             seed=int(self.rng.integers(0, 2**31 - 1)),
         )
 
+        # Re-weighted posterior for parameter estimation: weights only, no
+        # nested recompute. Its logZ is meaningless; the evidence is above.
+        log_w = log_importance_weights(logL_new - base_logL, correction)
+        posterior = apply_log_weights(augmented, log_w)
+
         weights = np.asarray(posterior.get_weights(), dtype=float)
         result = {
             "posterior": posterior,
             "logL_new": logL_new,
-            "log_evidence": nested_logZ,
-            "log_evidence_err": nested_logZ_err,
-            "evidence_diagnostic": diagnostic,
+            "evidence": evidence,
+            "log_evidence": evidence.log_evidence,
+            "log_evidence_err": evidence.log_evidence_err,
             "effective_sample_size": effective_sample_size(weights),
             "efficiency": efficiency(weights),
         }
