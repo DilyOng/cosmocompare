@@ -6,11 +6,12 @@
 # applied automatically either way).
 
 global_settings:
-  # Path passed to anesthetic.read_chains for the base-model samples.
+  # Path passed to anesthetic.read_chains for the base-model samples. The full
+  # nested run is used (not posterior points), so the evidence integral covers
+  # the whole prior volume. A relative path is resolved under $COSMOCOMPARE_CHAINS.
   base_chain_path: /path/to/base/chains/lcdm_planck
-  # Reweight the posterior points (True) or the full nested run (False).
-  use_posterior: true
-  # Optional cap on the number of base samples, useful for a quick trial.
+  # Optional cap on the number of base samples. For smoke tests only: it breaks
+  # the nested run, so the evidence it yields is not meaningful.
   max_samples: null
   # Where posteriors and likelihood arrays are written.
   output_dir: cosmocompare_output

@@ -27,6 +27,8 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.special import logsumexp
 
+from cosmocompare.diagnostics import effective_sample_size
+
 
 @dataclass
 class EvidenceResult:
@@ -140,13 +142,14 @@ def importance_evidence(
     for b in range(n_bootstrap):
         idx = rng.integers(0, n, size=n)
         boots[b] = _log_ratio(log_base[idx], log_w[idx])
-    log_ratio_err = float(np.std(boots))
+    # A degenerate ratio (every sample rejected) has no meaningful spread.
+    log_ratio_err = float(np.std(boots)) if np.isfinite(log_ratio) else float("nan")
 
-    # Effective sample size of the combined (base x importance) weights.
-    combined = np.exp(log_base + log_w - np.max(log_base + log_w))
-    combined = combined[np.isfinite(combined)]
-    if combined.size and combined.sum() > 0:
-        ess = float(combined.sum() ** 2 / np.sum(combined**2))
+    # Effective sample size of the combined (base x importance) weights, in the
+    # linear domain. Shifting by the maximum keeps the exponential in range.
+    max_log = np.max(log_base + log_w)
+    if np.isfinite(max_log):
+        ess = effective_sample_size(np.exp(log_base + log_w - max_log))
     else:
         ess = 0.0
 

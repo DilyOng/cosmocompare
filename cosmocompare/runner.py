@@ -1,21 +1,27 @@
 """End-to-end driver tying the reweighting pipeline together.
 
-Given a configuration, the runner reads the base chains once and, for each
-target model, augments the samples with the model's new parameters, re-evaluates
-the likelihood, reweights, and records both the reweighted posterior and the
-evidence. It is the object a batch job or a notebook calls; the individual steps
-live in the focused modules it imports.
+Given a configuration, the runner reads the base chains once and, for each target
+model, augments the full nested-sampling run with the model's new parameters,
+re-evaluates the likelihood, reweights, and records both the reweighted posterior
+and the evidence.
+
+The evidence is read from the reweighted *nested* run with anesthetic's own
+``logZ`` (:func:`cosmocompare.evidence.nested_evidence`), so the integral is
+taken over the whole prior volume the sampler traversed and the baseline
+``log Z`` is on the same footing. The ratio-based
+:func:`cosmocompare.evidence.importance_evidence`, with its bootstrap error and
+effective sample size, is kept alongside as a reliability diagnostic.
 """
 
 from pathlib import Path
 
 import numpy as np
 
-from cosmocompare.config import load_config
+from cosmocompare.config import chains_root, load_config, output_root
 from cosmocompare.diagnostics import effective_sample_size, efficiency
 from cosmocompare.evidence import importance_evidence, nested_evidence
 from cosmocompare.models import ModelFactory
-from cosmocompare.reweight import attach_new_parameters, importance_sample
+from cosmocompare.reweight import importance_sample
 
 
 class Runner:
@@ -24,11 +30,18 @@ class Runner:
     Parameters
     ----------
     config : str, pathlib.Path or dict
-        Either a path to a YAML configuration or an already-parsed
-        configuration dictionary (see :func:`cosmocompare.config.load_config`).
+        Either a path to a YAML configuration or an already-parsed configuration
+        dictionary (see :func:`cosmocompare.config.load_config`).
     rng : numpy.random.Generator, optional
         Source of randomness for parameter augmentation and the evidence
         bootstrap, for reproducible runs.
+
+    Notes
+    -----
+    The runner operates on the full nested-sampling run, not on posterior points,
+    because the evidence integral needs the whole prior-to-posterior volume. The
+    ``max_samples`` setting truncates the run and is a convenience for smoke-
+    testing the plumbing only; the evidence it yields is not meaningful.
     """
 
     def __init__(self, config, rng=None):
@@ -40,19 +53,18 @@ class Runner:
         self.settings = config["global_settings"]
         self.rng = np.random.default_rng() if rng is None else rng
 
-        self.output_dir = Path(self.settings.get("output_dir", "cosmocompare_output"))
+        self.output_dir = Path(self.settings.get("output_dir") or output_root())
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        self.base_samples = read_chains(self.settings["base_chain_path"])
-        if self.settings.get("use_posterior", True):
-            self.base_samples = self.base_samples.posterior_points()
+        chain_path = Path(self.settings["base_chain_path"])
+        root = chains_root()
+        if root is not None and not chain_path.is_absolute():
+            chain_path = root / chain_path
+        self.base_samples = read_chains(str(chain_path))
 
         max_samples = self.settings.get("max_samples")
         if max_samples:
             self.base_samples = self.base_samples.head(max_samples)
-
-        self.base_logL = np.asarray(self.base_samples.logL, dtype=float)
-        self.base_weights = np.asarray(self.base_samples.get_weights(), dtype=float)
 
     def run(self):
         """Process every target model in the configuration.
@@ -73,7 +85,7 @@ class Runner:
         return results
 
     def process_model(self, name, model_config):
-        """Reweight the base samples onto one target model.
+        """Reweight the base run onto one target model and get its evidence.
 
         Parameters
         ----------
@@ -85,12 +97,17 @@ class Runner:
         Returns
         -------
         dict
-            Result with the reweighted posterior, the evidence estimates and the
-            weight diagnostics.
+            Result with the reweighted posterior, the nested-sampling evidence
+            (primary), the ratio-based evidence diagnostic, and the weight
+            diagnostics.
         """
         from cosmocompare.likelihood import LikelihoodCalculator
 
         model = ModelFactory.create(name, model_config)
+
+        # Augment the run with the new parameters *before* reweighting, so that
+        # anesthetic carries the new columns through and keeps them aligned with
+        # whatever samples the reweighting retains.
         augmented = model.augment_samples(self.base_samples, rng=self.rng)
 
         calculator = LikelihoodCalculator(model.yaml_path)
@@ -99,34 +116,33 @@ class Runner:
             use_parallel=self.settings.get("use_parallel", True),
             n_cores=self.settings.get("n_cores"),
         )
-
         correction = model.log_prior_correction(augmented)
-        finite_mask = np.isfinite(logL_new + correction)
 
-        posterior = importance_sample(self.base_samples, logL_new, correction)
-        attach_new_parameters(
-            posterior, augmented, model.new_params.keys(), finite_mask
-        )
+        posterior = importance_sample(augmented, logL_new, correction)
 
+        # Primary estimate: evidence of the reweighted nested run.
+        nested_logZ, nested_logZ_err = nested_evidence(posterior)
+
+        # Diagnostic: ratio estimator with a bootstrap error and effective
+        # sample size, a direct measure of reweighting reliability.
         base_logZ_draws = np.asarray(self.base_samples.logZ(1000), dtype=float)
-        evidence = importance_evidence(
+        diagnostic = importance_evidence(
             logL_new,
-            self.base_logL,
-            base_weights=self.base_weights,
+            np.asarray(augmented.logL, dtype=float),
+            base_weights=np.asarray(augmented.get_weights(), dtype=float),
             log_prior_correction=correction,
             base_log_evidence=float(base_logZ_draws.mean()),
             base_log_evidence_err=float(base_logZ_draws.std()),
             seed=int(self.rng.integers(0, 2**31 - 1)),
         )
-        nested_logZ, nested_logZ_err = nested_evidence(posterior)
 
         weights = np.asarray(posterior.get_weights(), dtype=float)
         result = {
             "posterior": posterior,
             "logL_new": logL_new,
-            "evidence": evidence,
-            "nested_log_evidence": nested_logZ,
-            "nested_log_evidence_err": nested_logZ_err,
+            "log_evidence": nested_logZ,
+            "log_evidence_err": nested_logZ_err,
+            "evidence_diagnostic": diagnostic,
             "effective_sample_size": effective_sample_size(weights),
             "efficiency": efficiency(weights),
         }

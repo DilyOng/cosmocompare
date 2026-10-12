@@ -1,13 +1,8 @@
-"""Tests for the weight update and column alignment."""
+"""Tests for the weight update."""
 
 import numpy as np
-import pandas as pd
 
-from cosmocompare.reweight import (
-    attach_new_parameters,
-    importance_sample,
-    log_importance_weights,
-)
+from cosmocompare.reweight import importance_sample, log_importance_weights
 
 
 class _FakeSamples:
@@ -45,38 +40,3 @@ def test_importance_sample_replaces_with_corrected_likelihood():
     assert base.captured["action"] == "replace"
     assert base.captured["inplace"] is False
     assert np.allclose(base.captured["logL"], logL + corr)
-
-
-def test_attach_parameters_all_retained():
-    """When nothing is dropped, every value is copied straight across."""
-    augmented = pd.DataFrame({"w": [0.1, 0.2, 0.3]})
-    posterior = {}
-    posterior = _DictPosterior(3)
-    attach_new_parameters(posterior, augmented, ["w"], np.array([True, True, True]))
-    assert np.allclose(posterior["w"], [0.1, 0.2, 0.3])
-
-
-def test_attach_parameters_finite_subset():
-    """When the sampler drops -inf rows, the finite values are selected."""
-    augmented = pd.DataFrame({"w": [0.1, 0.2, 0.3]})
-    posterior = _DictPosterior(2)
-    mask = np.array([True, False, True])
-    attach_new_parameters(posterior, augmented, ["w"], mask)
-    assert np.allclose(posterior["w"], [0.1, 0.3])
-
-
-class _DictPosterior:
-    """A length-aware dict supporting column assignment, like a frame."""
-
-    def __init__(self, n):
-        self.n = n
-        self._data = {}
-
-    def __len__(self):
-        return self.n
-
-    def __setitem__(self, key, value):
-        self._data[key] = np.asarray(value)
-
-    def __getitem__(self, key):
-        return self._data[key]
