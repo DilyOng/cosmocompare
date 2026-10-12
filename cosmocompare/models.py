@@ -4,6 +4,13 @@ An extended model is described here by the parameters it adds to the base model
 and by the Cobaya input that defines its likelihood. Everything the sampler
 needs from a model - how to draw its new parameters and how to score them under
 the target prior - is reached through :class:`TargetModel`.
+
+Each new parameter is drawn once per base sample from its proposal. This is an
+unbiased Monte Carlo marginalisation, but a single draw is noisy when the
+proposal is much broader than the target: the effective sample size collapses and
+the bootstrap error alone understates it. Use narrow, informed proposals, and
+check stability across several ``rng`` seeds (repeated independent augmentations)
+before trusting an added-parameter evidence.
 """
 
 import numpy as np
@@ -73,6 +80,13 @@ class TargetModel:
             # overwriting its sampled coordinate would corrupt the likelihood
             # ratio, so its real values are kept and only re-weighted.
             if name in augmented.columns:
+                if param._shares_proposal:
+                    raise ValueError(
+                        f"{name!r} already exists in the samples, so its prior is "
+                        f"being changed, not added. Give its original prior as the "
+                        f"'proposal' so the correction is log(prior_new/prior_base), "
+                        f"or use cosmocompare.reweight_prior for a pure prior change."
+                    )
                 continue
             augmented[name] = param.sample(n_samples, rng=rng)
         return augmented

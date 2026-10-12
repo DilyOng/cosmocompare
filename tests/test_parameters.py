@@ -49,6 +49,36 @@ def test_correction_matches_prior_minus_proposal():
     assert np.allclose(param.log_correction(values), expected)
 
 
+def test_proposal_must_cover_prior():
+    """A proposal narrower than the prior is refused (target regions unsampled)."""
+    with pytest.raises(ValueError):
+        Parameter(
+            "w",
+            prior={"type": "uniform", "min": -3.0, "max": 1.0},
+            proposal={"type": "uniform", "min": -1.0, "max": 0.0},
+        )
+
+
+def test_proposal_covering_prior_is_allowed():
+    """A proposal at least as wide as the prior is accepted."""
+    param = Parameter(
+        "w",
+        prior={"type": "uniform", "min": -2.0, "max": 0.0},
+        proposal={"type": "gaussian", "mean": -1.0, "std": 1.0},  # unbounded covers
+    )
+    assert param.proposal.type == "gaussian"
+
+
+def test_support_bounds():
+    """Support returns the finite bounds, or +/-inf for an unbounded family."""
+    assert _Distribution({"type": "uniform", "min": -1.0, "max": 2.0}).support() == (
+        -1.0,
+        2.0,
+    )
+    lo, hi = _Distribution({"type": "gaussian", "mean": 0.0, "std": 1.0}).support()
+    assert lo == float("-inf") and hi == float("inf")
+
+
 def test_truncated_gaussian_respects_bounds():
     """Truncated-Gaussian samples stay inside the truncation bounds."""
     dist = _Distribution(

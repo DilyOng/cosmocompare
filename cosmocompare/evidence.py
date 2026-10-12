@@ -2,13 +2,14 @@ r"""Bayesian evidence for an extended model, reused from existing chains.
 
 This is the deliverable the rest of the package exists to produce. Reweighting
 turns base-model samples into target-model samples; the evidence turns them into
-a verdict. Two routes are offered:
+a verdict.
 
-- :func:`nested_evidence` reads the evidence straight off an importance-sampled
-  nested-sampling run, with the sampling error anesthetic already propagates.
-- :func:`importance_evidence` forms the evidence *ratio* between the target and
-  base models directly from the weights and attaches a bootstrap uncertainty,
-  which needs nothing beyond the arrays and so is easy to audit.
+:func:`importance_evidence` is the estimator for every re-weighting case: it
+forms the evidence *ratio* between the target and base models directly from the
+weights and attaches a bootstrap uncertainty, needing nothing beyond the arrays.
+:func:`nested_evidence` is only a thin reader of ``logZ`` from a *genuine* nested
+run (for example to obtain the base ``log Z_old``); it must not be applied to a
+re-weighted run, whose nested geometry no longer holds.
 
 The evidence ratio estimator is
 
@@ -165,22 +166,22 @@ def importance_evidence(
 
 
 def nested_evidence(samples, nsamples=1000):
-    """Read the evidence off a nested-sampling run with anesthetic's ``logZ``.
+    """Read ``log Z`` (with error) off a genuine nested-sampling run.
 
     .. warning::
 
-       Valid only for a genuine nested run. It is **not** a correct target
-       evidence after re-weighting onto an added parameter or a changed prior,
-       because anesthetic re-sorts and recomputes the prior-volume geometry from
-       the base run's birth contours, which no longer describe the changed
-       measure. For those cases use :func:`importance_evidence` (or
-       :func:`cosmocompare.prior.reweight_prior`). This helper is kept only for
-       the special case of swapping the likelihood on the *same* parameter space.
+       Use only on a real nested run - for instance to obtain the base
+       ``log Z_old``. It is **not** valid on a re-weighted run of any kind
+       (added parameter, changed prior, or even a like-for-like likelihood swap):
+       anesthetic re-sorts and recomputes the prior-volume geometry from the base
+       run's birth contours, which no longer describe the changed measure. For
+       any re-weighting, use :func:`importance_evidence` (or
+       :func:`cosmocompare.prior.reweight_prior`).
 
     Parameters
     ----------
     samples : anesthetic.NestedSamples
-        A nested-sampling run.
+        A genuine nested-sampling run.
     nsamples : int, optional
         Number of posterior draws of ``log Z`` used to estimate the
         nested-sampling uncertainty. Defaults to 1000.

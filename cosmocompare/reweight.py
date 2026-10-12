@@ -66,10 +66,11 @@ def apply_log_weights(samples, log_weights):
     Returns
     -------
     anesthetic samples
-        A copy whose posterior weights are ``W_i * exp(log_weights_i)``. No
-        nested-sampling recompute is performed, so the result is a valid weighted
-        posterior but its ``logZ`` is meaningless - take the evidence from
-        :mod:`cosmocompare.evidence`.
+        A weighted posterior whose weights are ``W_i * exp(log_weights_i)``. A
+        ``NestedSamples`` input is returned as ``MCMCSamples``: no nested recompute
+        is performed, so its nested ``logZ`` would be meaningless, and casting
+        removes that method so it cannot be called by mistake. Take the evidence
+        from :mod:`cosmocompare.evidence` instead.
 
     Notes
     -----
@@ -85,4 +86,12 @@ def apply_log_weights(samples, log_weights):
 
     out = samples.copy()
     out.set_weights(new, inplace=True)
+
+    # Returning a NestedSamples would carry a nested ``logZ`` that is invalid once
+    # the weights no longer describe a nested sequence. Cast it to a plain weighted
+    # posterior so that trap is removed rather than merely documented.
+    if type(out).__name__ == "NestedSamples":
+        from anesthetic import MCMCSamples
+
+        out = MCMCSamples(out)
     return out

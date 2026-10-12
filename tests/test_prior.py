@@ -2,6 +2,7 @@
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from cosmocompare.prior import prior_log_ratio
 
@@ -47,3 +48,16 @@ def test_multiple_parameters_sum():
         },
     }
     assert np.isclose(prior_log_ratio(samples, changes)[0], 2 * np.log(2.0))
+
+
+def test_broadening_prior_is_rejected():
+    """A new prior reaching beyond the base support is refused, not biased."""
+    samples = pd.DataFrame({"x": [0.2, 0.5, 0.8]})
+    changes = {
+        "x": {
+            "base": {"type": "uniform", "min": 0.0, "max": 1.0},
+            "new": {"type": "uniform", "min": -0.5, "max": 1.0},  # wider than base
+        }
+    }
+    with pytest.raises(ValueError):
+        prior_log_ratio(samples, changes)

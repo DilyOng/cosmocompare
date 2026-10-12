@@ -21,12 +21,19 @@ with ``W_i`` the base posterior weights. For a uniform prior narrowed from width
 This is the one route in the package that does not lean on anesthetic's nested
 ``logZ`` of a re-weighted run, which is not valid once the samples no longer form
 a nested sequence under the changed measure.
+
+Two conditions apply, the first enforced, the second assumed:
+
+- The new prior's support must lie within the base prior's support. Widening a
+  bounded prior reaches regions the chain never sampled and is refused.
+- The prior change factorises over parameters (a sum of one-dimensional log
+  ratios); correlated prior changes are not supported.
 """
 
 import numpy as np
 
 from cosmocompare.evidence import importance_evidence
-from cosmocompare.parameters import _Distribution
+from cosmocompare.parameters import _Distribution, check_support_contained
 from cosmocompare.reweight import apply_log_weights
 
 
@@ -55,6 +62,9 @@ def prior_log_ratio(samples, changes):
         values = np.asarray(samples[name], dtype=float)
         old = _Distribution(cfg["base"])
         new = _Distribution(cfg["new"])
+        # The new prior must not reach beyond the old one: those regions were
+        # never sampled, so reweighting there would silently bias the evidence.
+        check_support_contained(new, old, name)
         total = total + (new.logpdf(values) - old.logpdf(values))
     return total
 

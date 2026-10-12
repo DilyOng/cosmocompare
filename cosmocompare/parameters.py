@@ -109,6 +109,55 @@ class _Distribution:
             return log_pdf
         return self._dist.logpdf(values)
 
+    def support(self):
+        """Return the ``(low, high)`` bounds of the distribution's support.
+
+        Returns
+        -------
+        tuple of float
+            The interval outside which the density is zero. Unbounded families
+            (``gaussian``) return ``(-inf, inf)``.
+        """
+        if self.type == "gaussian":
+            return (-np.inf, np.inf)
+        if self.type == "log_uniform":
+            return (float(np.exp(self._log_min)), float(np.exp(self._log_max)))
+        return (float(self.params["min"]), float(self.params["max"]))
+
+
+def check_support_contained(inner, outer, name=""):
+    """Raise if ``inner``'s support is not contained within ``outer``'s.
+
+    Importance sampling can only move probability mass to where the original
+    samples already live. A target distribution with support outside the one the
+    samples were drawn from covers regions that were never explored, which biases
+    the estimate silently, so it is rejected here rather than returned wrong.
+
+    Parameters
+    ----------
+    inner : _Distribution
+        The distribution whose support must be covered (the target prior, or an
+        added parameter's prior).
+    outer : _Distribution
+        The distribution that must cover it (the base prior, or the proposal).
+    name : str, optional
+        Parameter name, used in the error message.
+
+    Raises
+    ------
+    ValueError
+        If ``inner`` has support beyond ``outer``.
+    """
+    lo_in, hi_in = inner.support()
+    lo_out, hi_out = outer.support()
+    if lo_in < lo_out or hi_in > hi_out:
+        raise ValueError(
+            f"Target support for {name!r} ([{lo_in}, {hi_in}]) extends beyond the "
+            f"base/proposal support ([{lo_out}, {hi_out}]). Importance sampling "
+            f"cannot reach regions the samples never covered; widening a bounded "
+            f"prior requires a new run."
+        )
+
 
 class Parameter:
     """A new parameter introduced by an extended model.
@@ -134,6 +183,9 @@ class Parameter:
         self.prior = _Distribution(prior)
         self.proposal = self.prior if proposal is None else _Distribution(proposal)
         self._shares_proposal = proposal is None
+        if not self._shares_proposal:
+            # The proposal must cover the prior, or target regions go unsampled.
+            check_support_contained(self.prior, self.proposal, name)
 
     def sample(self, n_samples, rng=None):
         """Draw values from the proposal distribution.
