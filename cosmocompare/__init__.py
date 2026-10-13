@@ -23,7 +23,13 @@ from cosmocompare.evidence import (
 from cosmocompare.grid import all_jobs, index_of_job, job_by_index
 from cosmocompare.models import ModelFactory, TargetModel
 from cosmocompare.parameters import Parameter
-from cosmocompare.prior import prior_log_ratio, reweight_prior
+from cosmocompare.prior import (
+    prior_log_ratio,
+    region_volume_fraction,
+    reweight_density,
+    reweight_prior,
+    reweight_region,
+)
 from cosmocompare.reweight import apply_log_weights, log_importance_weights
 from cosmocompare.runner import Runner
 from cosmocompare.sweep import (
@@ -57,6 +63,9 @@ __all__ = [
     "output_root",
     "posterior_centres",
     "prior_log_ratio",
+    "region_volume_fraction",
+    "reweight_density",
     "reweight_prior",
+    "reweight_region",
     "shrink_uniform",
 ]

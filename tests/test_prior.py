@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from cosmocompare.prior import prior_log_ratio
+from cosmocompare.prior import prior_log_ratio, region_volume_fraction
 
 
 def test_uniform_narrowing_ratio():
@@ -61,6 +61,39 @@ def test_broadening_prior_is_rejected():
     }
     with pytest.raises(ValueError):
         prior_log_ratio(samples, changes)
+
+
+def test_region_volume_half_space():
+    """Half of a unit box is recovered as a volume fraction of ~0.5."""
+    rng = np.random.default_rng(0)
+    frac = region_volume_fraction(
+        lambda a: a[:, 0] > 0.5, [(0.0, 1.0)], n_mc=200_000, rng=rng
+    )
+    assert np.isclose(frac, 0.5, atol=0.01)
+
+
+def test_region_volume_triangle():
+    """The triangle x + y <= 1 in the unit square has volume fraction ~0.5."""
+    rng = np.random.default_rng(1)
+    frac = region_volume_fraction(
+        lambda a: a[:, 0] + a[:, 1] <= 1.0,
+        [(0.0, 1.0), (0.0, 1.0)],
+        n_mc=200_000,
+        rng=rng,
+    )
+    assert np.isclose(frac, 0.5, atol=0.01)
+
+
+def test_region_volume_full_and_empty():
+    """An always-true region gives 1; an always-false region gives 0."""
+    rng = np.random.default_rng(2)
+    full = region_volume_fraction(
+        lambda a: np.ones(len(a), bool), [(-1.0, 1.0)], n_mc=10_000, rng=rng
+    )
+    empty = region_volume_fraction(
+        lambda a: np.zeros(len(a), bool), [(-1.0, 1.0)], n_mc=10_000, rng=rng
+    )
+    assert full == 1.0 and empty == 0.0
 
 
 def test_base_prior_not_matching_chain_is_rejected():

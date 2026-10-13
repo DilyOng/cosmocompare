@@ -112,6 +112,34 @@ def reweight_prior(samples, changes, nsamples=1000, n_bootstrap=1000, seed=None)
         it: the evidence is the returned ``EvidenceResult``.
     """
     log_r = prior_log_ratio(samples, changes)
+    return _evidence_and_posterior(samples, log_r, nsamples, n_bootstrap, seed)
+
+
+def _evidence_and_posterior(samples, log_r, nsamples, n_bootstrap, seed):
+    """Turn a per-sample log prior ratio into an evidence and re-weighted posterior.
+
+    Shared back end for every prior-change route: the evidence is the importance
+    ratio estimator on the fixed base evidence, and the posterior is the base
+    weights multiplied by the ratio (no nested recompute).
+
+    Parameters
+    ----------
+    samples : anesthetic.NestedSamples
+        The base run.
+    log_r : numpy.ndarray
+        Per-sample ``log(prior_new / prior_old)``.
+    nsamples : int
+        ``log Z`` draws for the base evidence and its error.
+    n_bootstrap : int
+        Bootstrap resamples for the ratio error.
+    seed : int or None
+        Seed for the bootstrap.
+
+    Returns
+    -------
+    tuple
+        ``(EvidenceResult, posterior)`` as documented on :func:`reweight_prior`.
+    """
     base_logL = np.asarray(samples.logL, dtype=float)
     base_weights = np.asarray(samples.get_weights(), dtype=float)
 
@@ -126,9 +154,137 @@ def reweight_prior(samples, changes, nsamples=1000, n_bootstrap=1000, seed=None)
         n_bootstrap=n_bootstrap,
         seed=seed,
     )
-
-    # Re-weighted posterior without touching the nested geometry: the weights are
-    # multiplied by the prior ratio; samples outside the new support get zero.
     posterior = apply_log_weights(samples, log_r)
-
     return evidence, posterior
+
+
+def reweight_density(
+    samples,
+    log_prior_new,
+    log_prior_old=None,
+    nsamples=1000,
+    n_bootstrap=1000,
+    seed=None,
+):
+    """Re-weight onto an arbitrary, normalised joint prior given as a callable.
+
+    This is the general route for priors that do not factorise over parameters -
+    correlated priors, non-rectangular regions, or externally-supplied densities
+    (for example a normalising-flow prior). The caller is responsible for two
+    things: the densities being correctly normalised, and the new prior's support
+    lying within the region the chain actually sampled (reweighting cannot reach
+    where there are no samples - truncate and renormalise an unbounded density to
+    the base prior's support first). ``reweight_region`` handles the common
+    uniform-on-a-region case, including its normalisation, for you.
+
+    Parameters
+    ----------
+    samples : anesthetic.NestedSamples
+        The base run.
+    log_prior_new : callable
+        ``log_prior_new(samples) -> array`` of length ``len(samples)``, the log
+        of the (normalised) target prior density at each sample.
+    log_prior_old : callable, optional
+        The base prior's log density. Omit when the chain's base prior is uniform
+        over the sampled region: a constant then cancels in the ratio and only
+        the shape of ``log_prior_new`` matters.
+    nsamples, n_bootstrap, seed
+        As in :func:`reweight_prior`.
+
+    Returns
+    -------
+    tuple
+        ``(EvidenceResult, posterior)`` as documented on :func:`reweight_prior`.
+    """
+    log_new = np.asarray(log_prior_new(samples), dtype=float)
+    if log_prior_old is None:
+        log_r = log_new
+    else:
+        log_r = log_new - np.asarray(log_prior_old(samples), dtype=float)
+    return _evidence_and_posterior(samples, log_r, nsamples, n_bootstrap, seed)
+
+
+def region_volume_fraction(inside, base_bounds, n_mc=1_000_000, rng=None):
+    """Estimate the fraction of a uniform box that lies within a region.
+
+    Parameters
+    ----------
+    inside : callable
+        ``inside(array)`` where ``array`` has shape ``(n, d)``; returns a boolean
+        array marking points within the region.
+    base_bounds : sequence of tuple
+        ``(low, high)`` for each of the ``d`` dimensions.
+    n_mc : int, optional
+        Number of Monte-Carlo draws. Defaults to 1e6.
+    rng : numpy.random.Generator, optional
+        Source of randomness.
+
+    Returns
+    -------
+    float
+        The Monte-Carlo estimate of ``V_region / V_box`` in ``[0, 1]``.
+    """
+    rng = np.random.default_rng() if rng is None else rng
+    bounds = np.asarray(base_bounds, dtype=float)
+    draws = rng.uniform(bounds[:, 0], bounds[:, 1], size=(n_mc, len(bounds)))
+    return float(np.mean(inside(draws)))
+
+
+def reweight_region(
+    samples,
+    params,
+    inside,
+    base_bounds,
+    n_mc=1_000_000,
+    rng=None,
+    nsamples=1000,
+    n_bootstrap=1000,
+    seed=None,
+):
+    """Re-weight onto a uniform prior restricted to an arbitrary region.
+
+    The new prior is uniform over the sub-region ``inside`` of the original
+    uniform box ``base_bounds`` (for example the non-phantom region
+    ``w0 + wa >= -1``). The region's prior volume is estimated by Monte-Carlo
+    integration over the base box, giving the correct normalisation: a sample in
+    the region is up-weighted by ``V_base / V_region``, one outside gets zero.
+
+    Parameters
+    ----------
+    samples : anesthetic.NestedSamples
+        The base run.
+    params : sequence of str
+        Parameter names spanning the region, in the order ``inside`` expects.
+    inside : callable
+        ``inside(array)`` where ``array`` has shape ``(n, len(params))``; returns
+        a boolean array marking points within the region.
+    base_bounds : sequence of tuple
+        ``(low, high)`` for each parameter in ``params`` - the original uniform
+        prior bounds.
+    n_mc : int, optional
+        Monte-Carlo draws for the region-volume fraction. Defaults to 1e6.
+    rng : numpy.random.Generator, optional
+        Source of randomness for the volume estimate.
+    nsamples, n_bootstrap, seed
+        As in :func:`reweight_prior`.
+
+    Returns
+    -------
+    tuple
+        ``(EvidenceResult, posterior)`` as documented on :func:`reweight_prior`.
+
+    Raises
+    ------
+    ValueError
+        If the region is empty (no Monte-Carlo draw falls inside).
+    """
+    frac = region_volume_fraction(inside, base_bounds, n_mc=n_mc, rng=rng)
+    if frac <= 0:
+        raise ValueError("Region contains no prior volume (empty region).")
+
+    values = np.column_stack([np.asarray(samples[p], dtype=float) for p in params])
+    in_region = np.asarray(inside(values), dtype=bool)
+    # Uniform-on-region density / uniform-on-box density = V_base/V_region = 1/frac.
+    log_r = np.where(in_region, -np.log(frac), -np.inf)
+
+    return _evidence_and_posterior(samples, log_r, nsamples, n_bootstrap, seed)
