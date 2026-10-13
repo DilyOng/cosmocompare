@@ -23,11 +23,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 #: Colour-blind-friendly palette, one colour per dataset.
-COLOURS = ["#0072B2", "#009E73", "#D55E00"]
+COLOURS = ["#0072B2", "#D55E00", "#009E73", "#CC79A7"]
 
 #: Short labels for the dataset keys.
 SHORT = {
     "bao.desi_dr2+planck_2018_CamSpec": "DESI DR2 + CMB",
+    "bao.desi_dr2+planck_2018_CamSpec+sn.desy5": "DESI DR2 + CMB + DES-SN5YR",
     "bao.desi_dr2+planck_2018_CamSpec+sn.desdovekie": "DESI DR2 + CMB + DES-Dovekie",
     "bao.desi_dr2+planck_2018_CamSpec+sn.union3": "DESI DR2 + CMB + Union3",
 }
