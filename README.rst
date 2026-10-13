@@ -25,16 +25,9 @@ extended models, and recomputes the Bayesian evidence with an uncertainty, so
 that a model-comparison verdict and its sensitivity to the prior can be obtained
 in seconds on a laptop.
 
-The weight update carries the full prior-over-proposal correction,
-
-.. math::
-
-    w_\text{new} = w_\text{old}\,
-        \frac{\mathcal{L}_\text{new}}{\mathcal{L}_\text{old}}\,
-        \frac{\Pi_\text{new}}{q},
-
-so narrowing a prior or drawing new parameters from an informed proposal stays
-unbiased rather than relying on the proposal and the target prior coinciding.
+The weight update carries the full prior-over-proposal correction, so narrowing a
+prior or drawing new parameters from an informed proposal stays unbiased rather
+than relying on the proposal and the target prior coinciding.
 
 Developed under a UKRI-funded high performance computing (DiRAC) project.
 

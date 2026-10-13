@@ -22,18 +22,19 @@ The narrowing is *homothetic* about a fixed centre: each bound moves as
 stays a sub-box, and the prior volume scales as ``f^(number of parameters)``.
 
 **The centre must be chosen independently of the data.** Centring on the
-posterior mode and shrinking would raise the extended evidence by construction -
+posterior and shrinking would raise the extended evidence by construction -
 data-dependent prior tuning that can flip any verdict trivially, and is not a
 valid evidential test. The defensible choice is a fixed, data-independent centre
 (for a dark-energy comparison, the LCDM point ``w0 = -1, wa = 0``).
-:func:`posterior_centres` is provided only for an explicitly-labelled "optimistic
-upper bound on flip-ability", never for an evidential claim.
+:func:`posterior_centres` (the posterior-weighted mean) is provided only for an
+explicitly-labelled "optimistic upper bound on flip-ability", never for an
+evidential claim.
 """
 
 import numpy as np
 
-from cosmocompare.evidence import nested_evidence
-from cosmocompare.prior import reweight_prior
+from cosmocompare.evidence import importance_evidence, nested_evidence
+from cosmocompare.prior import prior_log_ratio
 
 
 def posterior_centres(samples, params):
@@ -113,7 +114,7 @@ def _changes(param_bases, fraction, centres):
     Returns
     -------
     dict
-        A ``changes`` mapping for :func:`cosmocompare.prior.reweight_prior`.
+        A ``changes`` mapping for :func:`cosmocompare.prior.prior_log_ratio`.
     """
     centres = centres or {}
     changes = {}
@@ -154,9 +155,9 @@ def bayes_factor_sweep(
         Fixed point each parameter's prior shrinks towards. A dict
         ``{name: value}`` sets a data-independent centre (the defensible choice,
         for example the LCDM point ``{"w0": -1, "wa": 0}``); None uses the prior
-        midpoints. ``"posterior"`` centres on the posterior mode, which is
-        data-dependent tuning - use it only for an explicitly-labelled upper bound
-        on flip-ability, never for an evidential result.
+        midpoints. ``"posterior"`` centres on the posterior-weighted mean, which
+        is data-dependent tuning - use it only for an explicitly-labelled upper
+        bound on flip-ability, never for an evidential result.
     nsamples : int, optional
         ``log Z`` draws for the base/extended evidence errors. Defaults to 1000.
     n_bootstrap : int, optional
@@ -169,10 +170,22 @@ def bayes_factor_sweep(
     list of dict
         One record per fraction, each with ``fraction``, ``bounds`` (the narrowed
         prior per parameter), ``log_evidence_ext``, ``log_bayes_factor``,
-        ``log_bayes_factor_err`` (extended and base errors in quadrature),
-        and ``effective_sample_size``.
+        ``log_bayes_factor_err``, and ``effective_sample_size``.
+
+    Notes
+    -----
+    The extended and base runs' broad ``log Z`` are each estimated once and shared
+    across the sweep: they are common offsets, not per-fraction quantities, so
+    re-drawing them per cell would only inject noise into the curve. Only the
+    prior-reweighting log ratio (and its bootstrap error) varies with the
+    fraction. ``log_bayes_factor_err`` combines that bootstrap error with both
+    runs' ``log Z`` errors in quadrature.
     """
     base_logZ, base_logZ_err = nested_evidence(base, nsamples)
+    ext_logZ, ext_logZ_err = nested_evidence(extended, nsamples)
+    ext_logL = np.asarray(extended.logL, dtype=float)
+    ext_weights = np.asarray(extended.get_weights(), dtype=float)
+    offset_err = float(np.hypot(ext_logZ_err, base_logZ_err))
 
     if centres == "posterior":
         centres = posterior_centres(extended, param_bases.keys())
@@ -181,25 +194,28 @@ def bayes_factor_sweep(
     for k, fraction in enumerate(fractions):
         changes = _changes(param_bases, fraction, centres)
         cell_seed = None if seed is None else seed + k
-        evidence, _ = reweight_prior(
-            extended,
-            changes,
-            nsamples=nsamples,
+        log_r = prior_log_ratio(extended, changes)
+        ratio = importance_evidence(
+            ext_logL,
+            ext_logL,
+            base_weights=ext_weights,
+            log_prior_correction=log_r,
             n_bootstrap=n_bootstrap,
             seed=cell_seed,
         )
-        log_b = evidence.log_evidence - base_logZ
-        log_b_err = float(np.hypot(evidence.log_evidence_err, base_logZ_err))
+        log_evidence_ext = ext_logZ + ratio.log_ratio
+        log_b = log_evidence_ext - base_logZ
+        log_b_err = float(np.hypot(ratio.log_ratio_err, offset_err))
         records.append(
             {
                 "fraction": float(fraction),
                 "bounds": {
                     n: (c["new"]["min"], c["new"]["max"]) for n, c in changes.items()
                 },
-                "log_evidence_ext": evidence.log_evidence,
+                "log_evidence_ext": log_evidence_ext,
                 "log_bayes_factor": log_b,
                 "log_bayes_factor_err": log_b_err,
-                "effective_sample_size": evidence.effective_sample_size,
+                "effective_sample_size": ratio.effective_sample_size,
             }
         )
     return records
@@ -216,12 +232,17 @@ def flip_fraction(records):
     Returns
     -------
     float or None
-        The interpolated ``fraction`` where ``log_bayes_factor`` changes sign,
-        or None if it does not cross zero over the swept range. When several
-        crossings exist, the one at the largest fraction (widest prior) is
-        returned.
+        The ``fraction`` where ``log_bayes_factor`` reaches zero, by exact match
+        or linear interpolation of a sign change. None if no crossing is found
+        over the swept range (including a crossing hidden by a non-finite value).
+        When several crossings exist, the one at the largest fraction (widest
+        prior) is returned.
     """
     ordered = sorted(records, key=lambda r: r["fraction"], reverse=True)
+    # An exact zero at a sampled width is itself the crossing.
+    for r in ordered:
+        if r["log_bayes_factor"] == 0:
+            return float(r["fraction"])
     for a, b in zip(ordered, ordered[1:]):
         fa, fb = a["log_bayes_factor"], b["log_bayes_factor"]
         if np.isnan(fa) or np.isnan(fb):

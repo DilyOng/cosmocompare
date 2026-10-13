@@ -66,6 +66,16 @@ def test_flip_fraction_none_without_crossing():
     assert flip_fraction(records) is None
 
 
+def test_flip_fraction_exact_zero():
+    """An exact zero at a sampled width is returned as the crossing."""
+    records = [
+        {"fraction": 1.0, "log_bayes_factor": -0.3},
+        {"fraction": 0.5, "log_bayes_factor": 0.0},
+        {"fraction": 0.25, "log_bayes_factor": 0.4},
+    ]
+    assert flip_fraction(records) == 0.5
+
+
 # --- Integration: real chains, no Cobaya. Set both env vars to a chain root each.
 _EXT = os.environ.get("COSMOCOMPARE_TEST_EXT_CHAIN")
 _BASE = os.environ.get("COSMOCOMPARE_TEST_BASE_CHAIN")
