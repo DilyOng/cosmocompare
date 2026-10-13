@@ -126,8 +126,11 @@ def sweep_dataset(ext, base, args):
             for name, (lo, hi) in bounds.items()
         }
         evidence, _ = reweight_prior(
-            ext, changes, nsamples=args.nsamples,
-            n_bootstrap=args.n_bootstrap, seed=args.seed,
+            ext,
+            changes,
+            nsamples=args.nsamples,
+            n_bootstrap=args.n_bootstrap,
+            seed=args.seed,
         )
         discrete[label] = {
             "bounds": {k: list(v) for k, v in bounds.items()},
@@ -163,8 +166,10 @@ def main():
         ext_root = find_chain_root(args.ns_root, args.ext_model, dataset)
         base_root = find_chain_root(args.ns_root, args.base_model, dataset)
         if ext_root is None or base_root is None:
-            print(f"[skip] {dataset}: ext={ext_root is not None}, "
-                  f"base={base_root is not None} (chain not found)")
+            print(
+                f"[skip] {dataset}: ext={ext_root is not None}, "
+                f"base={base_root is not None} (chain not found)"
+            )
             continue
 
         print(f"\n=== {dataset} ===")
@@ -175,14 +180,18 @@ def main():
 
         print(f"{'f':>5} {'lnB':>9} {'+/-':>7} {'ESS':>8}")
         for r in result["sweep"]:
-            print(f"{r['fraction']:5.2f} {r['log_bayes_factor']:9.3f} "
-                  f"{r['log_bayes_factor_err']:7.3f} "
-                  f"{r['effective_sample_size']:8.0f}")
+            print(
+                f"{r['fraction']:5.2f} {r['log_bayes_factor']:9.3f} "
+                f"{r['log_bayes_factor_err']:7.3f} "
+                f"{r['effective_sample_size']:8.0f}"
+            )
         ff = result["flip_fraction"]
         print(f"flip fraction (lnB -> 0): {ff if ff is None else round(ff, 3)}")
         for label, d in result["discrete"].items():
-            print(f"discrete {label}: lnB = {d['log_bayes_factor']:.3f} "
-                  f"(ESS {d['effective_sample_size']:.0f})")
+            print(
+                f"discrete {label}: lnB = {d['log_bayes_factor']:.3f} "
+                f"(ESS {d['effective_sample_size']:.0f})"
+            )
 
     out_path = os.path.join(args.outdir, "prior_sweep.json")
     with open(out_path, "w") as stream:
