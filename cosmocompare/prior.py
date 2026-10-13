@@ -65,7 +65,19 @@ def prior_log_ratio(samples, changes):
         # The new prior must not reach beyond the old one: those regions were
         # never sampled, so reweighting there would silently bias the evidence.
         check_support_contained(new, old, name)
-        total = total + (new.logpdf(values) - old.logpdf(values))
+
+        old_logpdf = old.logpdf(values)
+        # Every existing sample must have finite density under the declared base
+        # prior - it was, after all, drawn under it. A -inf here means the stated
+        # base prior does not match the chain, which would corrupt the ratio
+        # (-inf - -inf = NaN) silently, so it is rejected rather than trusted.
+        if np.any(np.isneginf(old_logpdf)):
+            raise ValueError(
+                f"The declared base prior for {name!r} assigns zero probability to "
+                f"some existing samples. It does not match the prior the chain was "
+                f"produced under; check the 'base' bounds against the chain."
+            )
+        total = total + (new.logpdf(values) - old_logpdf)
     return total
 
 

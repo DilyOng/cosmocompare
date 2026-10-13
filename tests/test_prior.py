@@ -61,3 +61,16 @@ def test_broadening_prior_is_rejected():
     }
     with pytest.raises(ValueError):
         prior_log_ratio(samples, changes)
+
+
+def test_base_prior_not_matching_chain_is_rejected():
+    """A base prior that excludes existing samples is refused (mismatch guard)."""
+    samples = pd.DataFrame({"x": [0.2, 0.5, 1.5]})  # 1.5 is outside the stated base
+    changes = {
+        "x": {
+            "base": {"type": "uniform", "min": 0.0, "max": 1.0},
+            "new": {"type": "uniform", "min": 0.2, "max": 0.8},
+        }
+    }
+    with pytest.raises(ValueError):
+        prior_log_ratio(samples, changes)
