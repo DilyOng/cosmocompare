@@ -27,6 +27,7 @@ import glob
 import json
 import os
 
+import numpy as np
 from anesthetic import read_chains
 
 from cosmocompare import nested_evidence, reweight_prior, reweight_region
@@ -94,7 +95,42 @@ def find_chain_root(ns_root, model, dataset):
     return matches[0][: -len(".stats")]
 
 
-def sweep_dataset(ext, base, args):
+def read_logf(chain_root):
+    """Return the PolyChord prior-initialisation correction ``log(nprior/ndiscarded)``.
+
+    The unimpeded pipeline corrects each nested-sampling evidence by this factor,
+    read from the ``.prior_info`` file, to account for prior points discarded while
+    seeding the live points. It is a property of the base run (unchanged by
+    re-weighting), so it enters the log Bayes factor as a constant offset.
+
+    Parameters
+    ----------
+    chain_root : str
+        The chain-root prefix (as returned by :func:`find_chain_root`).
+
+    Returns
+    -------
+    float
+        ``log(nprior / ndiscarded)``, or 0.0 if the ``.prior_info`` is missing.
+    """
+    info = chain_root + ".prior_info"
+    if not os.path.exists(info):
+        return 0.0
+    nprior = ndiscarded = None
+    with open(info) as stream:
+        for line in stream:
+            parts = line.split()
+            if len(parts) >= 3 and parts[1] == "=":
+                if parts[0] == "nprior":
+                    nprior = float(parts[2])
+                elif parts[0] == "ndiscarded":
+                    ndiscarded = float(parts[2])
+    if not nprior or not ndiscarded:
+        return 0.0
+    return float(np.log(nprior / ndiscarded))
+
+
+def sweep_dataset(ext, base, args, logf_corr=0.0):
     """Run the homothetic sweep and the discrete priors for one dataset.
 
     Parameters
@@ -105,6 +141,9 @@ def sweep_dataset(ext, base, args):
         The base-model (LCDM) run.
     args : argparse.Namespace
         Parsed command-line options.
+    logf_corr : float, optional
+        The constant ``logF_ext - logF_base`` prior-initialisation correction to
+        add to every log Bayes factor so the baseline matches the published run.
 
     Returns
     -------
@@ -121,6 +160,8 @@ def sweep_dataset(ext, base, args):
         n_bootstrap=args.n_bootstrap,
         seed=args.seed,
     )
+    for r in records:
+        r["log_bayes_factor"] += logf_corr
 
     base_logZ, _ = nested_evidence(base, args.nsamples)
     discrete = {}
@@ -145,7 +186,7 @@ def sweep_dataset(ext, base, args):
         )
         discrete[label] = {
             "bounds": {k: list(v) for k, v in bounds.items()},
-            "log_bayes_factor": evidence.log_evidence - base_logZ,
+            "log_bayes_factor": evidence.log_evidence - base_logZ + logf_corr,
             "effective_sample_size": evidence.effective_sample_size,
         }
 
@@ -169,7 +210,7 @@ def sweep_dataset(ext, base, args):
         lower_bound.append(
             {
                 "lower_bound": low,
-                "log_bayes_factor": ev.log_evidence - base_logZ,
+                "log_bayes_factor": ev.log_evidence - base_logZ + logf_corr,
                 "log_bayes_factor_err": ev.log_evidence_err,
                 "effective_sample_size": ev.effective_sample_size,
             }
@@ -187,7 +228,7 @@ def sweep_dataset(ext, base, args):
     )
     physical = {
         "region": "w>=-1 and w+wa>=-1 (non-phantom)",
-        "log_bayes_factor": ev_phys.log_evidence - base_logZ,
+        "log_bayes_factor": ev_phys.log_evidence - base_logZ + logf_corr,
         "effective_sample_size": ev_phys.effective_sample_size,
     }
 
@@ -211,6 +252,11 @@ def main():
     parser.add_argument("--nsamples", type=int, default=1000)
     parser.add_argument("--n-bootstrap", type=int, default=1000)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--no-logf",
+        action="store_true",
+        help="disable the log(nprior/ndiscarded) prior-initialisation correction",
+    )
     parser.add_argument("--outdir", default="prior_sweep_results")
     args = parser.parse_args()
 
@@ -230,8 +276,11 @@ def main():
         print(f"\n=== {dataset} ===")
         ext = read_chains(ext_root)
         base = read_chains(base_root)
-        result = sweep_dataset(ext, base, args)
+        logf_corr = 0.0 if args.no_logf else read_logf(ext_root) - read_logf(base_root)
+        result = sweep_dataset(ext, base, args, logf_corr=logf_corr)
+        result["logf_correction"] = logf_corr
         all_results[dataset] = result
+        print(f"logF correction (logF_ext - logF_base): {logf_corr:+.3f}")
 
         print(f"{'f':>5} {'lnB':>9} {'+/-':>7} {'ESS':>8}")
         for r in result["sweep"]:
