@@ -33,10 +33,11 @@ from cosmocompare import nested_evidence, reweight_prior, reweight_region
 from cosmocompare.sweep import bayes_factor_sweep, flip_fraction
 
 #: Default base prior bounds of the extended-model parameters (DESI / this work).
-PARAM_BASES = {"w0": (-3.0, 1.0), "wa": (-3.0, 2.0)}
+#: In the chains the present-day equation of state is named ``w`` (i.e. w0).
+PARAM_BASES = {"w": (-3.0, 1.0), "wa": (-3.0, 2.0)}
 
 #: Fixed, data-independent centre the prior shrinks towards (the LCDM point).
-CENTRE = {"w0": -1.0, "wa": 0.0}
+CENTRE = {"w": -1.0, "wa": 0.0}
 
 #: Width fractions for the homothetic sweep (1.0 = original DESI prior).
 FRACTIONS = [1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1]
@@ -50,8 +51,8 @@ DATASETS = [
 
 #: Discrete, externally-motivated narrower rectangular priors (within the base).
 DISCRETE_PRIORS = {
-    "popovic_w0_-2_0": {"w0": (-2.0, 0.0)},
-    "quintessence_w0_>=-1": {"w0": (-1.0, 1.0)},
+    "popovic_w_-2_0": {"w": (-2.0, 0.0)},
+    "quintessence_w_>=-1": {"w": (-1.0, 1.0)},
 }
 
 #: Secondary, literature-targeted axis (Patel, Chakraborty & Amendola 2024,
@@ -63,9 +64,9 @@ LOWER_BOUNDS = [-3.0, -2.5, -2.0, -1.5, -1.0]
 #: Physical, non-phantom (thawing-quintessence) region as a joint constraint:
 #: today non-phantom (w0 >= -1) and early non-phantom (w0 + wa >= -1).
 def _non_phantom(values):
-    """Return the non-phantom mask for an ``(n, 2)`` array of ``(w0, wa)``."""
-    w0, wa = values[:, 0], values[:, 1]
-    return (w0 >= -1.0) & (w0 + wa >= -1.0)
+    """Return the non-phantom mask for an ``(n, 2)`` array of ``(w, wa)``."""
+    w, wa = values[:, 0], values[:, 1]
+    return (w >= -1.0) & (w + wa >= -1.0)
 
 
 def find_chain_root(ns_root, model, dataset):
@@ -177,15 +178,15 @@ def sweep_dataset(ext, base, args):
     # Supplementary: the physical non-phantom region (joint constraint).
     ev_phys, _ = reweight_region(
         ext,
-        ["w0", "wa"],
+        ["w", "wa"],
         _non_phantom,
-        [PARAM_BASES["w0"], PARAM_BASES["wa"]],
+        [PARAM_BASES["w"], PARAM_BASES["wa"]],
         nsamples=args.nsamples,
         n_bootstrap=args.n_bootstrap,
         seed=args.seed,
     )
     physical = {
-        "region": "w0>=-1 and w0+wa>=-1 (non-phantom)",
+        "region": "w>=-1 and w+wa>=-1 (non-phantom)",
         "log_bayes_factor": ev_phys.log_evidence - base_logZ,
         "effective_sample_size": ev_phys.effective_sample_size,
     }
