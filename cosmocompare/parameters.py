@@ -150,7 +150,11 @@ def check_support_contained(inner, outer, name=""):
     """
     lo_in, hi_in = inner.support()
     lo_out, hi_out = outer.support()
-    if lo_in < lo_out or hi_in > hi_out:
+    # Tolerate floating-point overshoot at the bounds (e.g. a homothetic shrink
+    # at fraction 1 reproducing the base edge to rounding), which is not a real
+    # support violation.
+    atol = 1e-9 * max(1.0, abs(lo_out), abs(hi_out))
+    if lo_in < lo_out - atol or hi_in > hi_out + atol:
         raise ValueError(
             f"Target support for {name!r} ([{lo_in}, {hi_in}]) extends beyond the "
             f"base/proposal support ([{lo_out}, {hi_out}]). Importance sampling "

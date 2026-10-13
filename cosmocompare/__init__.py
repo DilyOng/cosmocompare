@@ -26,6 +26,12 @@ from cosmocompare.parameters import Parameter
 from cosmocompare.prior import prior_log_ratio, reweight_prior
 from cosmocompare.reweight import apply_log_weights, log_importance_weights
 from cosmocompare.runner import Runner
+from cosmocompare.sweep import (
+    bayes_factor_sweep,
+    flip_fraction,
+    posterior_centres,
+    shrink_uniform,
+)
 
 __all__ = [
     "__version__",
@@ -36,9 +42,11 @@ __all__ = [
     "TargetModel",
     "all_jobs",
     "apply_log_weights",
+    "bayes_factor_sweep",
     "chains_root",
     "effective_sample_size",
     "efficiency",
+    "flip_fraction",
     "importance_evidence",
     "index_of_job",
     "job_by_index",
@@ -47,6 +55,8 @@ __all__ = [
     "log_importance_weights",
     "nested_evidence",
     "output_root",
+    "posterior_centres",
     "prior_log_ratio",
     "reweight_prior",
+    "shrink_uniform",
 ]
