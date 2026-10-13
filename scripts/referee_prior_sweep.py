@@ -29,7 +29,7 @@ import os
 
 from anesthetic import read_chains
 
-from cosmocompare import nested_evidence, reweight_prior
+from cosmocompare import nested_evidence, reweight_prior, reweight_region
 from cosmocompare.sweep import bayes_factor_sweep, flip_fraction
 
 #: Default base prior bounds of the extended-model parameters (DESI / this work).
@@ -48,14 +48,24 @@ DATASETS = [
     "bao.desi_dr2+planck_2018_CamSpec+sn.union3",
 ]
 
-#: Discrete, externally-motivated narrower priors (rectangular, within the base).
-#: Each maps a label to the narrowed bounds per parameter; unlisted parameters
-#: keep their base bounds. Non-rectangular priors (e.g. the quintessence
-#: constraint w0 + wa < 0) are not expressible here and would need a joint mask.
+#: Discrete, externally-motivated narrower rectangular priors (within the base).
 DISCRETE_PRIORS = {
     "popovic_w0_-2_0": {"w0": (-2.0, 0.0)},
     "quintessence_w0_>=-1": {"w0": (-1.0, 1.0)},
 }
+
+#: Secondary, literature-targeted axis (Patel, Chakraborty & Amendola 2024,
+#: arXiv:2407.06586): raise the LOWER (phantom) bound of w0 and wa together,
+#: keeping the upper bounds. The sequence of lower bounds to test.
+LOWER_BOUNDS = [-3.0, -2.5, -2.0, -1.5, -1.0]
+
+
+#: Physical, non-phantom (thawing-quintessence) region as a joint constraint:
+#: today non-phantom (w0 >= -1) and early non-phantom (w0 + wa >= -1).
+def _non_phantom(values):
+    """Return the non-phantom mask for an ``(n, 2)`` array of ``(w0, wa)``."""
+    w0, wa = values[:, 0], values[:, 1]
+    return (w0 >= -1.0) & (w0 + wa >= -1.0)
 
 
 def find_chain_root(ns_root, model, dataset):
@@ -138,10 +148,54 @@ def sweep_dataset(ext, base, args):
             "effective_sample_size": evidence.effective_sample_size,
         }
 
+    # Secondary axis: raise the lower (phantom) bound of w0 and wa together.
+    lower_bound = []
+    for low in LOWER_BOUNDS:
+        changes = {
+            name: {
+                "base": {"type": "uniform", "min": b[0], "max": b[1]},
+                "new": {"type": "uniform", "min": low, "max": b[1]},
+            }
+            for name, b in PARAM_BASES.items()
+        }
+        ev, _ = reweight_prior(
+            ext,
+            changes,
+            nsamples=args.nsamples,
+            n_bootstrap=args.n_bootstrap,
+            seed=args.seed,
+        )
+        lower_bound.append(
+            {
+                "lower_bound": low,
+                "log_bayes_factor": ev.log_evidence - base_logZ,
+                "log_bayes_factor_err": ev.log_evidence_err,
+                "effective_sample_size": ev.effective_sample_size,
+            }
+        )
+
+    # Supplementary: the physical non-phantom region (joint constraint).
+    ev_phys, _ = reweight_region(
+        ext,
+        ["w0", "wa"],
+        _non_phantom,
+        [PARAM_BASES["w0"], PARAM_BASES["wa"]],
+        nsamples=args.nsamples,
+        n_bootstrap=args.n_bootstrap,
+        seed=args.seed,
+    )
+    physical = {
+        "region": "w0>=-1 and w0+wa>=-1 (non-phantom)",
+        "log_bayes_factor": ev_phys.log_evidence - base_logZ,
+        "effective_sample_size": ev_phys.effective_sample_size,
+    }
+
     return {
         "sweep": records,
-        "discrete": discrete,
         "flip_fraction": flip_fraction(records),
+        "discrete": discrete,
+        "lower_bound": lower_bound,
+        "physical": physical,
     }
 
 
@@ -187,11 +241,24 @@ def main():
             )
         ff = result["flip_fraction"]
         print(f"flip fraction (lnB -> 0): {ff if ff is None else round(ff, 3)}")
+
+        print("lower-bound sweep (raise phantom bound of w0, wa):")
+        for r in result["lower_bound"]:
+            print(
+                f"  low={r['lower_bound']:+.2f}  lnB={r['log_bayes_factor']:7.3f} "
+                f"(ESS {r['effective_sample_size']:.0f})"
+            )
+
         for label, d in result["discrete"].items():
             print(
                 f"discrete {label}: lnB = {d['log_bayes_factor']:.3f} "
                 f"(ESS {d['effective_sample_size']:.0f})"
             )
+        phys = result["physical"]
+        print(
+            f"physical non-phantom region: lnB = {phys['log_bayes_factor']:.3f} "
+            f"(ESS {phys['effective_sample_size']:.0f})"
+        )
 
     out_path = os.path.join(args.outdir, "prior_sweep.json")
     with open(out_path, "w") as stream:
