@@ -13,6 +13,16 @@ target likelihood needs Cobaya, which is an optional extra imported only when a
 
 from cosmocompare._version import __version__
 from cosmocompare.config import chains_root, load_config, output_root
+from cosmocompare.dark_energy import (
+    LCDM_CENTRE,
+    box_normalised_logdensity,
+    gaussian_shrink,
+    no_phantom,
+    physicality_cut,
+    quintessence_prior,
+    sensitivity_panel,
+    thawing_band,
+)
 from cosmocompare.diagnostics import effective_sample_size, efficiency
 from cosmocompare.evidence import (
     EvidenceResult,
@@ -42,6 +52,7 @@ from cosmocompare.sweep import (
 __all__ = [
     "__version__",
     "EvidenceResult",
+    "LCDM_CENTRE",
     "ModelFactory",
     "Parameter",
     "Runner",
@@ -49,10 +60,12 @@ __all__ = [
     "all_jobs",
     "apply_log_weights",
     "bayes_factor_sweep",
+    "box_normalised_logdensity",
     "chains_root",
     "effective_sample_size",
     "efficiency",
     "flip_fraction",
+    "gaussian_shrink",
     "importance_evidence",
     "index_of_job",
     "job_by_index",
@@ -60,12 +73,17 @@ __all__ = [
     "log_bayes_factor",
     "log_importance_weights",
     "nested_evidence",
+    "no_phantom",
     "output_root",
+    "physicality_cut",
     "posterior_centres",
     "prior_log_ratio",
+    "quintessence_prior",
     "region_volume_fraction",
     "reweight_density",
     "reweight_prior",
     "reweight_region",
+    "sensitivity_panel",
     "shrink_uniform",
+    "thawing_band",
 ]
