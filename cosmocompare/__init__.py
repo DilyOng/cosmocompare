@@ -12,7 +12,13 @@ target likelihood needs Cobaya, which is an optional extra imported only when a
 """
 
 from cosmocompare._version import __version__
-from cosmocompare.config import chains_root, load_config, output_root
+from cosmocompare.config import (
+    chain_stem,
+    chains_root,
+    load_config,
+    output_root,
+    resolve_chain_stem,
+)
 from cosmocompare.dark_energy import (
     LCDM_CENTRE,
     box_normalised_logdensity,
@@ -66,7 +72,9 @@ __all__ = [
     "apply_log_weights",
     "bayes_factor_sweep",
     "box_normalised_logdensity",
+    "chain_stem",
     "chains_root",
+    "resolve_chain_stem",
     "effective_sample_size",
     "efficiency",
     "flip_fraction",

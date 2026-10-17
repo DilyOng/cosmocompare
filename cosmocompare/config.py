@@ -6,6 +6,7 @@ schema in one place means a configuration can be checked before any expensive
 chain reading or likelihood evaluation begins.
 """
 
+import glob
 import os
 from pathlib import Path
 
@@ -14,8 +15,23 @@ import yaml
 #: Environment variable naming the root of a local chain grid.
 CHAINS_ENV = "COSMOCOMPARE_CHAINS"
 
+#: Environment variable naming the *primary* grid root (searched first).
+CHAINS_PRIMARY_ENV = "COSMOCOMPARE_CHAINS_PRIMARY"
+
+#: Environment variable naming the *fallback* grid root (searched second).
+CHAINS_FALLBACK_ENV = "COSMOCOMPARE_CHAINS_FALLBACK"
+
 #: Environment variable naming the default output directory.
 OUTPUT_ENV = "COSMOCOMPARE_OUTPUT"
+
+#: Default grid roots on the DiRAC RDS. ``new_grid`` holds the corrected/newer
+#: chains and is searched first; ``grid`` is the fallback. This reverses the order
+#: used by the older ``tension_stats_grid`` scripts (which read ``grid`` first),
+#: deliberately, so the corrected chains take precedence. Override with the
+#: environment variables above for a different machine.
+_RDS = "/home/dlo26/rds/rds-dirac-dp192-63QXlf5HuFo/dlo26"
+DEFAULT_PRIMARY_ROOT = f"{_RDS}/new_grid"
+DEFAULT_FALLBACK_ROOT = f"{_RDS}/grid"
 
 
 def chains_root():
@@ -28,6 +44,86 @@ def chains_root():
     """
     value = os.environ.get(CHAINS_ENV)
     return Path(value) if value else None
+
+
+def chain_stem(root, model, dataset, method="ns"):
+    """Return the anesthetic chain stem for one (model, dataset) under a root.
+
+    The grid stores each run as PolyChord output files sharing a stem inside a
+    ``<dataset>_polychord_raw`` directory, so the stem passed to
+    ``anesthetic.read_chains`` is
+    ``<root>/<method>/<model>/<dataset>/<dataset>_polychord_raw/<dataset>``.
+
+    Parameters
+    ----------
+    root : str or pathlib.Path
+        A grid root (for example ``.../new_grid``).
+    model : str
+        Model name (for example ``lcdm`` or ``walcdm``).
+    dataset : str
+        Dataset identifier.
+    method : str, optional
+        Sampling method directory. Defaults to ``"ns"`` (nested sampling).
+
+    Returns
+    -------
+    pathlib.Path
+        The chain stem (a path prefix, not an existing file on its own).
+    """
+    raw = f"{dataset}_polychord_raw"
+    return Path(root) / method / model / dataset / raw / dataset
+
+
+def _stem_exists(stem):
+    """Return True when PolyChord output files for a stem are present."""
+    return bool(glob.glob(f"{stem}*"))
+
+
+def resolve_chain_stem(
+    model, dataset, method="ns", primary=None, fallback=None
+):
+    """Resolve a (model, dataset) to a chain stem, trying new_grid then grid.
+
+    The primary root (``new_grid`` by default) is searched first; if no files are
+    found there, the fallback root (``grid``) is tried. This prefers the corrected
+    chains, reversing the order of the older ``tension_stats_grid`` scripts.
+
+    Parameters
+    ----------
+    model : str
+        Model name.
+    dataset : str
+        Dataset identifier.
+    method : str, optional
+        Sampling method directory. Defaults to ``"ns"``.
+    primary : str or pathlib.Path, optional
+        Primary grid root. Defaults to ``$COSMOCOMPARE_CHAINS_PRIMARY`` or
+        :data:`DEFAULT_PRIMARY_ROOT`.
+    fallback : str or pathlib.Path, optional
+        Fallback grid root. Defaults to ``$COSMOCOMPARE_CHAINS_FALLBACK`` or
+        :data:`DEFAULT_FALLBACK_ROOT`.
+
+    Returns
+    -------
+    pathlib.Path
+        The chain stem in the first root that has the run's files.
+
+    Raises
+    ------
+    FileNotFoundError
+        If neither root holds the run.
+    """
+    primary = primary or os.environ.get(CHAINS_PRIMARY_ENV, DEFAULT_PRIMARY_ROOT)
+    fallback = fallback or os.environ.get(CHAINS_FALLBACK_ENV, DEFAULT_FALLBACK_ROOT)
+
+    for root in (primary, fallback):
+        stem = chain_stem(root, model, dataset, method=method)
+        if _stem_exists(stem):
+            return stem
+    raise FileNotFoundError(
+        f"No chain for model {model!r}, dataset {dataset!r} (method {method!r}) "
+        f"in the primary root {primary!r} or the fallback root {fallback!r}."
+    )
 
 
 def output_root():
