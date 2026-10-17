@@ -35,7 +35,12 @@ def effective_sample_size(weights):
     if weights.size == 0:
         return 0.0
 
+    # Importance and nested posterior weights are non-negative by construction.
+    # A negative weight means the input is corrupted upstream; Kish's formula is
+    # undefined for it (cancellation can make the result exceed N or go
+    # nonsensical), so negatives are dropped rather than silently incorporated.
     finite = weights[np.isfinite(weights)]
+    finite = finite[finite >= 0]
     if finite.size == 0:
         return 0.0
 

@@ -166,7 +166,7 @@ def reweight_density(
     n_bootstrap=1000,
     seed=None,
 ):
-    """Re-weight onto an arbitrary, normalised joint prior given as a callable.
+    """Re-weight onto an arbitrary joint prior given as a callable.
 
     This is the general route for priors that do not factorise over parameters -
     correlated priors, non-rectangular regions, or externally-supplied densities
@@ -177,17 +177,33 @@ def reweight_density(
     the base prior's support first). ``reweight_region`` handles the common
     uniform-on-a-region case, including its normalisation, for you.
 
+    .. warning::
+
+       The evidence ratio is ``<pi_new / pi_old>``, so the base prior's
+       normalisation does **not** drop out: for a uniform base of volume ``V`` the
+       density is ``1 / V``, and that ``1 / V`` is exactly the prior-volume (Ockham)
+       factor. Passing a bare normalised ``log pi_new`` with ``log_prior_old``
+       omitted therefore biases ``log Z_new`` by ``log V``. Either pass
+       ``log_prior_old`` explicitly, or pass a ``log_prior_new`` that already
+       returns the log *ratio* ``log(pi_new / pi_old)`` (see below).
+
     Parameters
     ----------
     samples : anesthetic.NestedSamples
         The base run.
     log_prior_new : callable
-        ``log_prior_new(samples) -> array`` of length ``len(samples)``, the log
-        of the (normalised) target prior density at each sample.
+        ``log_prior_new(samples) -> array`` of length ``len(samples)``. With
+        ``log_prior_old`` given, this is the log of the normalised target prior
+        density ``pi_new`` at each sample. With ``log_prior_old`` omitted, this
+        must instead return the log *ratio* ``log(pi_new / pi_old)`` directly.
     log_prior_old : callable, optional
-        The base prior's log density. Omit when the chain's base prior is uniform
-        over the sampled region: a constant then cancels in the ratio and only
-        the shape of ``log_prior_new`` matters.
+        The base prior's log density ``pi_old`` (properly normalised). Omit it
+        only when ``log_prior_new`` already returns the log ratio
+        ``log(pi_new / pi_old)`` - for instance the callable built by
+        :func:`cosmocompare.dark_energy.box_normalised_logdensity`, which folds
+        the uniform base normalisation in correctly. Omitting it while passing a
+        bare ``log pi_new`` silently drops the Ockham prior-volume term; see the
+        warning above.
     nsamples, n_bootstrap, seed
         As in :func:`reweight_prior`.
 
@@ -287,4 +303,20 @@ def reweight_region(
     # Uniform-on-region density / uniform-on-box density = V_base/V_region = 1/frac.
     log_r = np.where(in_region, -np.log(frac), -np.inf)
 
-    return _evidence_and_posterior(samples, log_r, nsamples, n_bootstrap, seed)
+    evidence, posterior = _evidence_and_posterior(
+        samples, log_r, nsamples, n_bootstrap, seed
+    )
+
+    # The volume fraction is itself a Monte-Carlo estimate, and it shifts
+    # log(Z_new / Z_old) by exactly -log(frac). Its binomial uncertainty,
+    # sigma_logfrac = sqrt((1 - frac) / (frac * n_mc)), therefore belongs in the
+    # error budget; omitting it reports a spuriously precise evidence for a small
+    # region estimated with a modest n_mc. It is combined in quadrature here.
+    sigma_logfrac = float(np.sqrt((1.0 - frac) / (frac * n_mc)))
+    if np.isfinite(evidence.log_ratio_err):
+        evidence.log_ratio_err = float(np.hypot(evidence.log_ratio_err, sigma_logfrac))
+    if evidence.log_evidence_err is not None and np.isfinite(evidence.log_evidence_err):
+        evidence.log_evidence_err = float(
+            np.hypot(evidence.log_evidence_err, sigma_logfrac)
+        )
+    return evidence, posterior

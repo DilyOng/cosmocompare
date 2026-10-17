@@ -39,6 +39,7 @@ from scipy.special import logsumexp
 from cosmocompare.diagnostics import effective_sample_size
 from cosmocompare.evidence import log_bayes_factor, nested_evidence
 from cosmocompare.prior import reweight_density, reweight_region
+from cosmocompare.psis import psis
 
 #: The :math:`\Lambda\mathrm{CDM}` point in CPL space, the data-independent centre
 #: for any shrink-toward-base prior.
@@ -330,7 +331,30 @@ def quintessence_prior(
 # The flagship output: a sensitivity panel, not a single number
 # =============================================================================
 
-def _panel_row(name, evidence, base_logZ, base_logZ_err, ess_warn):
+def _pareto_k(posterior):
+    """Return the PSIS Pareto-k-hat of a reweighted posterior's weights.
+
+    Computed on the combined weights ``W_i * (pi_new/pi_old)_i``. For a hard cut
+    the surviving weights are a spike of equal values with no Pareto tail, so the
+    fit returns ``nan`` (correctly: the diagnostic does not apply to hard cuts,
+    which are governed instead by the Kish ESS and support containment).
+
+    Parameters
+    ----------
+    posterior : anesthetic samples
+        A reweighted posterior exposing ``get_weights``.
+
+    Returns
+    -------
+    float
+        The Pareto shape parameter, or ``nan`` when no tail can be fitted.
+    """
+    weights = np.asarray(posterior.get_weights(), dtype=float)
+    with np.errstate(divide="ignore"):
+        return psis(np.log(weights)).pareto_k
+
+
+def _panel_row(name, evidence, posterior, base_logZ, base_logZ_err, ess_warn):
     """Assemble one panel record from an absolute extended evidence.
 
     Parameters
@@ -340,6 +364,8 @@ def _panel_row(name, evidence, base_logZ, base_logZ_err, ess_warn):
     evidence : cosmocompare.evidence.EvidenceResult
         The extended-model evidence under this prior (absolute ``log_evidence``
         required).
+    posterior : anesthetic samples
+        The reweighted posterior, used for the Pareto-k-hat diagnostic.
     base_logZ, base_logZ_err : float
         The fixed base-model (``LCDM``) evidence and its error.
     ess_warn : float
@@ -352,13 +378,20 @@ def _panel_row(name, evidence, base_logZ, base_logZ_err, ess_warn):
     """
     log_b, log_b_err = log_bayes_factor(evidence, (base_logZ, base_logZ_err))
     ess = evidence.effective_sample_size
+    pareto_k = _pareto_k(posterior)
+    # A row is reliable when the Kish ESS clears the floor and, where a Pareto
+    # tail could be fitted (smooth priors), its k-hat is below 0.7.
+    reliable = bool(ess is not None and ess >= ess_warn)
+    if np.isfinite(pareto_k):
+        reliable = reliable and pareto_k < 0.7
     return {
         "prior": name,
         "log_evidence_ext": evidence.log_evidence,
         "log_bayes_factor": log_b,
         "log_bayes_factor_err": log_b_err,
         "effective_sample_size": ess,
-        "reliable": bool(ess is not None and ess >= ess_warn),
+        "pareto_k": pareto_k,
+        "reliable": reliable,
     }
 
 
@@ -440,25 +473,30 @@ def sensitivity_panel(
             "log_bayes_factor": log_b,
             "log_bayes_factor_err": log_b_err,
             "effective_sample_size": baseline_ess,
+            "pareto_k": float("nan"),
             "reliable": bool(baseline_ess >= ess_warn),
         }
     )
 
     def region_row(name, inside, k):
         cell_seed = None if seed is None else seed + k
-        evidence, _ = reweight_region(
+        evidence, posterior = reweight_region(
             extended, p, inside, bounds,
             n_mc=n_mc, nsamples=nsamples, n_bootstrap=n_bootstrap, seed=cell_seed,
         )
-        rows.append(_panel_row(name, evidence, base_logZ, base_logZ_err, ess_warn))
+        rows.append(
+            _panel_row(name, evidence, posterior, base_logZ, base_logZ_err, ess_warn)
+        )
 
     def density_row(name, log_prior_new, k):
         cell_seed = None if seed is None else seed + k
-        evidence, _ = reweight_density(
+        evidence, posterior = reweight_density(
             extended, log_prior_new,
             nsamples=nsamples, n_bootstrap=n_bootstrap, seed=cell_seed,
         )
-        rows.append(_panel_row(name, evidence, base_logZ, base_logZ_err, ess_warn))
+        rows.append(
+            _panel_row(name, evidence, posterior, base_logZ, base_logZ_err, ess_warn)
+        )
 
     k = 1
     region_row("physicality cut (w0+wa<0)", physicality_cut(p)[1], k)

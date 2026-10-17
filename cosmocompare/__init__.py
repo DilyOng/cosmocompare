@@ -33,6 +33,7 @@ from cosmocompare.evidence import (
 from cosmocompare.grid import all_jobs, index_of_job, job_by_index
 from cosmocompare.models import ModelFactory, TargetModel
 from cosmocompare.parameters import Parameter
+from cosmocompare.powerscale import power_scale_sweep, power_scaled_logdensity
 from cosmocompare.prior import (
     prior_log_ratio,
     region_volume_fraction,
@@ -40,8 +41,10 @@ from cosmocompare.prior import (
     reweight_prior,
     reweight_region,
 )
+from cosmocompare.psis import PSISResult, pareto_smooth, psis, psis_diagnostic
 from cosmocompare.reweight import apply_log_weights, log_importance_weights
 from cosmocompare.runner import Runner
+from cosmocompare.sddr import SDDRResult, savage_dickey
 from cosmocompare.sweep import (
     bayes_factor_sweep,
     flip_fraction,
@@ -54,8 +57,10 @@ __all__ = [
     "EvidenceResult",
     "LCDM_CENTRE",
     "ModelFactory",
+    "PSISResult",
     "Parameter",
     "Runner",
+    "SDDRResult",
     "TargetModel",
     "all_jobs",
     "apply_log_weights",
@@ -75,14 +80,20 @@ __all__ = [
     "nested_evidence",
     "no_phantom",
     "output_root",
+    "pareto_smooth",
     "physicality_cut",
     "posterior_centres",
+    "power_scale_sweep",
+    "power_scaled_logdensity",
     "prior_log_ratio",
+    "psis",
+    "psis_diagnostic",
     "quintessence_prior",
     "region_volume_fraction",
     "reweight_density",
     "reweight_prior",
     "reweight_region",
+    "savage_dickey",
     "sensitivity_panel",
     "shrink_uniform",
     "thawing_band",

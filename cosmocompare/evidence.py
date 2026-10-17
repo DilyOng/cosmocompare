@@ -50,6 +50,12 @@ class EvidenceResult:
     effective_sample_size : float
         Kish effective sample size of the combined weights, a guide to how far
         the estimate can be trusted.
+    bootstrap_degenerate_fraction : float or None
+        Fraction of bootstrap resamples that contained no finite-weight sample
+        and so returned a degenerate (``-inf``) ratio. A non-negligible value
+        means the sample is too starved for the bootstrap error to be trusted;
+        it rises in the tight-prior regime and should be read alongside
+        :attr:`effective_sample_size`.
     """
 
     log_ratio: float
@@ -57,6 +63,7 @@ class EvidenceResult:
     log_evidence: float = None
     log_evidence_err: float = None
     effective_sample_size: float = None
+    bootstrap_degenerate_fraction: float = None
 
 
 def _log_ratio(log_base_weights, log_sample_weights):
@@ -143,8 +150,17 @@ def importance_evidence(
     for b in range(n_bootstrap):
         idx = rng.integers(0, n, size=n)
         boots[b] = _log_ratio(log_base[idx], log_w[idx])
-    # A degenerate ratio (every sample rejected) has no meaningful spread.
-    log_ratio_err = float(np.std(boots)) if np.isfinite(log_ratio) else float("nan")
+    # Under a hard-narrowed prior only a few samples carry finite weight, so some
+    # bootstrap resamples contain none of them and the ratio collapses to -inf.
+    # A plain np.std over those is inf/NaN and would silently poison every error
+    # bar in a sweep, so the spread is taken over the finite replicates only and
+    # the fraction that degenerated is reported separately as a reliability flag.
+    finite_boots = boots[np.isfinite(boots)]
+    degenerate_fraction = float(1.0 - finite_boots.size / n_bootstrap)
+    if np.isfinite(log_ratio) and finite_boots.size >= 2:
+        log_ratio_err = float(np.std(finite_boots))
+    else:
+        log_ratio_err = float("nan")
 
     # Effective sample size of the combined (base x importance) weights, in the
     # linear domain. Shifting by the maximum keeps the exponential in range.
@@ -158,6 +174,7 @@ def importance_evidence(
         log_ratio=log_ratio,
         log_ratio_err=log_ratio_err,
         effective_sample_size=ess,
+        bootstrap_degenerate_fraction=degenerate_fraction,
     )
     if base_log_evidence is not None:
         result.log_evidence = base_log_evidence + log_ratio

@@ -89,9 +89,14 @@ def apply_log_weights(samples, log_weights):
 
     # Returning a NestedSamples would carry a nested ``logZ`` that is invalid once
     # the weights no longer describe a nested sequence. Cast it to a plain weighted
-    # posterior so that trap is removed rather than merely documented.
-    if type(out).__name__ == "NestedSamples":
-        from anesthetic import MCMCSamples
+    # posterior so that trap is removed rather than merely documented. If anesthetic
+    # is not importable the object cannot be a NestedSamples (they only exist via
+    # anesthetic), so there is nothing to cast.
+    try:
+        from anesthetic import MCMCSamples, NestedSamples
+    except ImportError:
+        return out
 
+    if isinstance(out, NestedSamples):
         out = MCMCSamples(out)
     return out

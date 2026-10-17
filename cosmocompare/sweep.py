@@ -245,7 +245,11 @@ def flip_fraction(records):
             return float(r["fraction"])
     for a, b in zip(ordered, ordered[1:]):
         fa, fb = a["log_bayes_factor"], b["log_bayes_factor"]
-        if np.isnan(fa) or np.isnan(fb):
+        # Skip any non-finite cell, not just NaN: an infinite Bayes factor (for
+        # example a prior narrowed until no sample survives) would otherwise pass
+        # the sign-change test and make the linear interpolation t = fa/(fa-fb)
+        # return NaN or a spurious crossing.
+        if not (np.isfinite(fa) and np.isfinite(fb)):
             continue
         if (fa < 0) != (fb < 0):  # sign change between adjacent fractions
             # Linear interpolation of fraction at log_bayes_factor == 0.
