@@ -5,14 +5,16 @@ Reads the JSON written by ``referee_prior_sweep.py`` and produces two panels:
 
 - left: the log Bayes factor along the homothetic prior-width sweep (continuous
   narrowing about the LCDM point), with bootstrap bands, the decision line
-  ``lnB = 0``, the flip point, and a marker where the effective sample size
-  drops (results below it are unreliable);
-- right: the log Bayes factor under discrete, externally-motivated prior choices
-  (the full DESI prior, narrower literature boxes, and the physical non-phantom
-  region), grouped by dataset.
+  ``lnB = 0``, the flip point, and open markers where a cell is unreliable
+  (ESS below the floor or Pareto k-hat >= 0.7);
+- right: the log Bayes factor under the discrete narrowing methods (the full
+  prior, the physicality cut, the non-phantom region, and literature boxes),
+  grouped by dataset.
 
-Usage
------
+The line is a point-to-point join of the computed cells (one exact reweighting per
+fraction), not a fit; the shaded band is the per-point bootstrap standard
+deviation. Usage::
+
     python plot_prior_sweep.py prior_sweep.json --out prior_sweep.pdf
 """
 
@@ -33,8 +35,20 @@ SHORT = {
     "bao.desi_dr2+planck_2018_CamSpec+sn.union3": "DESI DR2 + CMB + Union3",
 }
 
-#: Effective-sample-size floor below which a reweighted point is unreliable.
+#: Effective-sample-size floor below which a reweighted cell is unreliable.
 ESS_FLOOR = 1000.0
+
+#: Pareto k-hat above which a reweighted cell is unreliable.
+KHAT_CEIL = 0.7
+
+
+def _reliable(ess, khat):
+    """Return a boolean mask: ESS above the floor and k-hat below the ceiling."""
+    ess = np.asarray(ess, dtype=float)
+    khat = np.asarray(khat, dtype=float)
+    ess_ok = ess >= ESS_FLOOR
+    khat_ok = ~np.isfinite(khat) | (khat < KHAT_CEIL)
+    return ess_ok & khat_ok
 
 
 def plot_sweep(ax, results):
@@ -45,11 +59,11 @@ def plot_sweep(ax, results):
         lnB = np.array([p["log_bayes_factor"] for p in s])
         err = np.array([p["log_bayes_factor_err"] for p in s])
         ess = np.array([p["effective_sample_size"] for p in s])
-        reliable = ess >= ESS_FLOOR
+        khat = np.array([p.get("pareto_k", np.nan) for p in s])
+        reliable = _reliable(ess, khat)
 
         ax.fill_between(f, lnB - err, lnB + err, color=colour, alpha=0.15, lw=0)
         ax.plot(f, lnB, color=colour, lw=1.8, label=SHORT.get(name, name))
-        # Open markers where the ESS has collapsed (unreliable).
         ax.plot(f[reliable], lnB[reliable], "o", color=colour, ms=4)
         ax.plot(f[~reliable], lnB[~reliable], "o", mfc="white", mec=colour, ms=4)
 
@@ -58,85 +72,66 @@ def plot_sweep(ax, results):
             ax.axvline(ff, color=colour, ls=":", lw=1, alpha=0.7)
 
     ax.axhline(0.0, color="0.3", ls="--", lw=1)
-    ax.set_xlim(1.02, 0.08)  # narrower to the right
+    ax.set_xlim(1.02, 0.08)
     ax.set_xlabel(r"prior width fraction $f$  (narrower $\rightarrow$)")
     ax.set_ylabel(r"$\ln B\ \ (w_0w_a\mathrm{CDM}$ vs $\Lambda\mathrm{CDM})$")
-    ax.text(
-        0.985,
-        0.975,
-        r"$\uparrow$ favours $w_0w_a$CDM",
-        transform=ax.transAxes,
-        ha="right",
-        va="top",
-        fontsize=8,
-        color="0.4",
-    )
-    ax.text(
-        0.985,
-        0.025,
-        r"$\downarrow$ favours $\Lambda$CDM",
-        transform=ax.transAxes,
-        ha="right",
-        va="bottom",
-        fontsize=8,
-        color="0.4",
-    )
-    ax.text(
-        0.015,
-        0.025,
-        "open markers: ESS < %d (unreliable)" % ESS_FLOOR,
-        transform=ax.transAxes,
-        ha="left",
-        va="bottom",
-        fontsize=7,
-        color="0.5",
-    )
+    ax.text(0.985, 0.975, r"$\uparrow$ favours $w_0w_a$CDM", transform=ax.transAxes,
+            ha="right", va="top", fontsize=8, color="0.4")
+    ax.text(0.985, 0.025, r"$\downarrow$ favours $\Lambda$CDM", transform=ax.transAxes,
+            ha="right", va="bottom", fontsize=8, color="0.4")
+    ax.text(0.015, 0.025, "open markers: ESS < %d or $\\hat{k}\\geq$ %.1f (unreliable)"
+            % (ESS_FLOOR, KHAT_CEIL), transform=ax.transAxes, ha="left", va="bottom",
+            fontsize=7, color="0.5")
     ax.set_title("Homothetic narrowing about the $\\Lambda$CDM point", fontsize=10)
     ax.legend(fontsize=8, loc="upper left", frameon=False)
 
 
+def _method_values(r):
+    """Return (labels, values, reliable) for the discrete narrowing methods."""
+    labels, values, reliable = [], [], []
+    labels.append("full")
+    values.append(r["baseline"]["log_bayes_factor"])
+    reliable.append(True)
+    region = r.get("region", {})
+    for key, lab in (("physicality_cut", r"$w_0{+}w_a{<}0$"),
+                     ("no_phantom", "non-\nphantom")):
+        if key in region:
+            labels.append(lab)
+            values.append(region[key]["log_bayes_factor"])
+            reliable.append(_reliable(region[key]["effective_sample_size"],
+                                      region[key].get("pareto_k", np.nan)).item())
+    for key, lab in (("popovic_w_-2_0", r"$w\in$" "\n" r"$[-2,0]$"),
+                     ("quintessence_w_>=-1", r"$w\geq-1$")):
+        d = r.get("discrete", {}).get(key)
+        if d is not None:
+            labels.append(lab)
+            values.append(d["log_bayes_factor"])
+            reliable.append(_reliable(d["effective_sample_size"],
+                                      d.get("pareto_k", np.nan)).item())
+    return labels, values, reliable
+
+
 def plot_choices(ax, results):
-    """Draw the discrete prior-choice panel as grouped bars."""
-    labels = [
-        "DESI\n(full)",
-        "Popovic\n$w\\in[-2,0]$",
-        "quint.\n$w\\geq-1$",
-        "non-phantom",
-    ]
+    """Draw the discrete narrowing-method panel as grouped bars."""
     names = list(results.items())
     nb = len(names)
+    labels = _method_values(names[0][1])[0]
     width = 0.8 / nb
-    ymin, ymax = -3.0, 3.5
 
     for i, (colour, (name, r)) in enumerate(zip(COLOURS, names)):
-        vals = [
-            r["sweep"][0]["log_bayes_factor"],  # full prior (f = 1)
-            r["discrete"]["popovic_w_-2_0"]["log_bayes_factor"],
-            r["discrete"]["quintessence_w_>=-1"]["log_bayes_factor"],
-            r["physical"]["log_bayes_factor"],
-        ]
-        ess = [None, None, None, r["physical"]["effective_sample_size"]]
-        x = np.arange(len(labels)) + (i - (nb - 1) / 2) * width
-        for xi, v, e in zip(x, vals, ess):
-            clipped = max(v, ymin + 0.05)
-            ax.bar(xi, clipped - 0, width=width, color=colour, bottom=0, alpha=0.9)
-            if v < ymin:  # off-scale (physical region)
-                ax.annotate(
-                    "%.1f\n(ESS %d)" % (v, e),
-                    (xi, ymin + 0.1),
-                    ha="center",
-                    va="bottom",
-                    fontsize=6,
-                    rotation=90,
-                    color="white",
-                )
+        _, vals, reliable = _method_values(r)
+        x = np.arange(len(vals)) + (i - (nb - 1) / 2) * width
+        for xi, v, ok in zip(x, vals, reliable):
+            ax.bar(xi, v, width=width, color=colour, alpha=0.9 if ok else 0.35,
+                   hatch=None if ok else "//")
 
     ax.axhline(0.0, color="0.3", ls="--", lw=1)
     ax.set_xticks(np.arange(len(labels)))
-    ax.set_xticklabels(labels, fontsize=8)
-    ax.set_ylim(ymin, ymax)
+    ax.set_xticklabels(labels, fontsize=7)
     ax.set_ylabel(r"$\ln B$")
-    ax.set_title("Discrete prior choices", fontsize=10)
+    ax.set_title("Discrete narrowing methods", fontsize=10)
+    ax.text(0.98, 0.02, "faded/hatched: unreliable", transform=ax.transAxes,
+            ha="right", va="bottom", fontsize=7, color="0.5")
 
 
 def main():
@@ -156,8 +151,7 @@ def main():
     plot_choices(ax2, results)
     fig.suptitle(
         "Prior sensitivity of the dynamical dark energy evidence "
-        "(prior-volume corrected)",
-        fontsize=11,
+        "(prior-volume corrected)", fontsize=11,
     )
     fig.tight_layout(rect=(0, 0, 1, 0.96))
     fig.savefig(args.out, bbox_inches="tight")

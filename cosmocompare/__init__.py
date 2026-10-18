@@ -12,6 +12,13 @@ target likelihood needs Cobaya, which is an optional extra imported only when a
 """
 
 from cosmocompare._version import __version__
+from cosmocompare.catalogue import (
+    Catalogue,
+    Cell,
+    flag_ambiguous,
+    flag_sign_flips,
+    flag_unreliable,
+)
 from cosmocompare.config import (
     chain_stem,
     chains_root,
@@ -60,8 +67,13 @@ from cosmocompare.sweep import (
 
 __all__ = [
     "__version__",
+    "Catalogue",
+    "Cell",
     "EvidenceResult",
     "LCDM_CENTRE",
+    "flag_ambiguous",
+    "flag_sign_flips",
+    "flag_unreliable",
     "ModelFactory",
     "PSISResult",
     "Parameter",
