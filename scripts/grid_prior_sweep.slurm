@@ -5,18 +5,20 @@
 #! in place (no likelihood calls) and writes its own catalogue shard, so the array
 #! is parallel-safe; merge the shards once at the end.
 #!
-#! BEFORE SUBMITTING - fill in the account and partition. There is no "dp465"
-#! account; the available options for dlo26 are, e.g.:
-#!   --account=DIRAC-DP192-CPU  --partition=icelake   (1.6M hrs, co-located chains)
-#!   --account=handley-sl3-cpu  --partition=skylake   (112k hrs, skylake)
-#! dirac-dp192-cpu does NOT offer a skylake partition.
+#! dp465 (Seedcorn, "Mapping the Prior-Sensitivity ...") is on Peta4-Skylake,
+#! CSD3's legacy Skylake system, reached via login.hpc.cam.ac.uk (not login-cpu,
+#! which is the icelake system). The account/partition below follow the CSD3 house
+#! pattern (DIRAC-DP192-CPU -> DIRAC-DP465-CPU; partition skylake); VERIFY on a
+#! Peta4-Skylake login with `sacctmgr -n show assoc user=$USER | grep -i 465`
+#! before submitting, and adjust if the exact strings differ. A fallback with
+#! plenty of balance is --account=DIRAC-DP192-CPU --partition=icelake.
 #!
 #! Submit:  sbatch --array=0-661%64 grid_prior_sweep.slurm
 #! Merge:   python grid_prior_sweep.py --outdir $HOME/cc_grid --merge
 
 #SBATCH --job-name=cc_grid
-#SBATCH --account=FILL_IN_ACCOUNT
-#SBATCH --partition=FILL_IN_PARTITION
+#SBATCH --account=DIRAC-DP465-CPU
+#SBATCH --partition=skylake
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
