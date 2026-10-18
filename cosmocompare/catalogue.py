@@ -189,7 +189,10 @@ class Catalogue:
 
         df = self.load_summary()
         df = df[df["cell_id"] != cid]  # replace an existing identical cell
-        df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
+        new = pd.DataFrame([row])
+        # Avoid concatenating onto an all-empty frame (pandas warns and may change
+        # dtypes); when the table is empty the new row is the table.
+        df = new if df.empty else pd.concat([df, new], ignore_index=True)
         df = df[list(SUMMARY_COLUMNS)]
         df.to_csv(self.summary_path, index=False)
         return cid
