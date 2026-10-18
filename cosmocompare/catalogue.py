@@ -135,13 +135,46 @@ class Catalogue:
     root : str or pathlib.Path
         Directory for the catalogue. Created if absent. Holds ``summary.csv`` and
         a ``cache/`` subdirectory of ``.npz`` files.
+    shard : str, optional
+        When set, summary rows are written to ``summary_shards/<shard>.csv`` rather
+        than the shared ``summary.csv``, while the ``.npz`` cache stays shared.
+        This makes many parallel writers (a scheduler array, one shard each) safe:
+        the ``.npz`` files never collide (unique cell-id hashes) and no two writers
+        touch the same CSV. Merge the shards afterwards with :meth:`merge_shards`.
     """
 
-    def __init__(self, root):
+    def __init__(self, root, shard=None):
         self.root = Path(root)
         self.cache = self.root / "cache"
-        self.summary_path = self.root / "summary.csv"
+        self.shard = shard
+        if shard is None:
+            self.summary_path = self.root / "summary.csv"
+        else:
+            self.summary_path = self.root / "summary_shards" / f"{shard}.csv"
+        self.summary_path.parent.mkdir(parents=True, exist_ok=True)
         self.cache.mkdir(parents=True, exist_ok=True)
+
+    def merge_shards(self):
+        """Concatenate all summary shards into the shared ``summary.csv``.
+
+        Run once after a parallel (sharded) sweep. Rows with the same ``cell_id``
+        are de-duplicated, keeping the last, so a re-run shard overrides cleanly.
+
+        Returns
+        -------
+        pandas.DataFrame
+            The merged summary table (also written to ``summary.csv``).
+        """
+        shard_dir = self.root / "summary_shards"
+        frames = [pd.read_csv(p) for p in sorted(shard_dir.glob("*.csv"))]
+        if not frames:
+            merged = pd.DataFrame(columns=list(SUMMARY_COLUMNS))
+        else:
+            merged = pd.concat(frames, ignore_index=True)
+            merged = merged.drop_duplicates(subset="cell_id", keep="last")
+            merged = merged[list(SUMMARY_COLUMNS)]
+        merged.to_csv(self.root / "summary.csv", index=False)
+        return merged
 
     def save(self, cell):
         """Append a cell's metrics to the summary and cache its ``dlogw``.

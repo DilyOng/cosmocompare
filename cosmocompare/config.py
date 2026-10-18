@@ -79,6 +79,38 @@ def _stem_exists(stem):
     return bool(glob.glob(f"{stem}*"))
 
 
+def available_datasets(model, method="ns", primary=None, fallback=None):
+    """List dataset names that have a chain for ``model`` in either grid root.
+
+    Parameters
+    ----------
+    model : str
+        Model directory name.
+    method : str, optional
+        Sampling method directory. Defaults to ``"ns"``.
+    primary, fallback : str or pathlib.Path, optional
+        Grid roots; default to the environment or :data:`DEFAULT_PRIMARY_ROOT` /
+        :data:`DEFAULT_FALLBACK_ROOT`.
+
+    Returns
+    -------
+    list of str
+        Sorted dataset names for which a resolvable chain exists.
+    """
+    primary = primary or os.environ.get(CHAINS_PRIMARY_ENV, DEFAULT_PRIMARY_ROOT)
+    fallback = fallback or os.environ.get(CHAINS_FALLBACK_ENV, DEFAULT_FALLBACK_ROOT)
+
+    datasets = set()
+    for root in (primary, fallback):
+        model_dir = Path(root) / method / model
+        if not model_dir.is_dir():
+            continue
+        for sub in model_dir.iterdir():
+            if sub.is_dir() and _stem_exists(chain_stem(root, model, sub.name, method)):
+                datasets.add(sub.name)
+    return sorted(datasets)
+
+
 def resolve_chain_stem(
     model, dataset, method="ns", primary=None, fallback=None
 ):

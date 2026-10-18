@@ -20,12 +20,14 @@ from cosmocompare.catalogue import (
     flag_unreliable,
 )
 from cosmocompare.config import (
+    available_datasets,
     chain_stem,
     chains_root,
     load_config,
     output_root,
     resolve_chain_stem,
 )
+from cosmocompare.models_registry import REGISTRY, ModelSpec, model_names
 from cosmocompare.dark_energy import (
     LCDM_CENTRE,
     box_normalised_logdensity,
@@ -71,6 +73,10 @@ __all__ = [
     "Cell",
     "EvidenceResult",
     "LCDM_CENTRE",
+    "ModelSpec",
+    "REGISTRY",
+    "available_datasets",
+    "model_names",
     "flag_ambiguous",
     "flag_sign_flips",
     "flag_unreliable",

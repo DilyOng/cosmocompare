@@ -96,6 +96,20 @@ def test_flag_sign_flips(tmp_path):
     assert len(flagged) == 2
 
 
+def test_shards_merge_into_summary(tmp_path):
+    """Parallel shard writers merge into one summary, de-duplicated by cell_id."""
+    a = Catalogue(tmp_path, shard="walcdm__d1")
+    b = Catalogue(tmp_path, shard="wlcdm__d1")
+    a.save(_cell(model="walcdm", ln_bayes_factor=1.0, dlogw=np.zeros(2)))
+    b.save(_cell(model="wlcdm", ln_bayes_factor=2.0, dlogw=np.zeros(2)))
+    # Each shard file holds only its own row.
+    assert len(a.load_summary()) == 1
+    assert len(b.load_summary()) == 1
+    merged = Catalogue(tmp_path).merge_shards()
+    assert len(merged) == 2
+    assert set(merged["model"]) == {"walcdm", "wlcdm"}
+
+
 def test_flag_ambiguous_and_unreliable(tmp_path):
     """Ambiguous (|lnB|<1) and unreliable (reliable False) filters work."""
     cat = Catalogue(tmp_path)
