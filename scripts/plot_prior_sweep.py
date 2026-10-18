@@ -47,7 +47,7 @@ def _reliable(ess, khat):
     ess = np.asarray(ess, dtype=float)
     khat = np.asarray(khat, dtype=float)
     ess_ok = ess >= ESS_FLOOR
-    khat_ok = ~np.isfinite(khat) | (khat < KHAT_CEIL)
+    khat_ok = np.isfinite(khat) & (khat < KHAT_CEIL)
     return ess_ok & khat_ok
 
 

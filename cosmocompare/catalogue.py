@@ -24,7 +24,8 @@ scheduler array.
 
 import hashlib
 import json
-from dataclasses import asdict, dataclass, field
+import os
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -195,10 +196,13 @@ class Catalogue:
         cid = cell.cell_id()
 
         if cell.dlogw is not None:
-            np.savez_compressed(
-                self.cache / f"{cid}.npz",
-                dlogw=np.asarray(cell.dlogw, dtype=np.float32),
-            )
+            # Write to a unique temp name then atomically rename, so a killed
+            # process in a large array cannot leave a half-written .npz that later
+            # looks like a valid cached cell.
+            final = self.cache / f"{cid}.npz"
+            tmp = self.cache / f"{cid}.{os.getpid()}.tmp.npz"
+            np.savez_compressed(tmp, dlogw=np.asarray(cell.dlogw, dtype=np.float32))
+            os.replace(tmp, final)
 
         row = {
             "model": cell.model,

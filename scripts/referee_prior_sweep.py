@@ -168,11 +168,10 @@ def _evaluate(ctx, log_r, logf, frac_sigma=0.0):
 
 
 def _reliable(metrics):
-    """Reliability gate: ESS above the floor and (where fitted) k-hat < 0.7."""
+    """Reliability gate: ESS above the floor and a finite Pareto k-hat < 0.7."""
     ess_ok = metrics["ess"] is not None and metrics["ess"] >= ESS_FLOOR
     k = metrics["pareto_k"]
-    k_ok = (not np.isfinite(k)) or (k < 0.7)
-    return bool(ess_ok and k_ok)
+    return bool(ess_ok and np.isfinite(k) and k < 0.7)
 
 
 def _cell(ctx, method, params, metrics, log_r, flip=None):

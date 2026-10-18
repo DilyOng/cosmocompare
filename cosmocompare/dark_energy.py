@@ -379,11 +379,12 @@ def _panel_row(name, evidence, posterior, base_logZ, base_logZ_err, ess_warn):
     log_b, log_b_err = log_bayes_factor(evidence, (base_logZ, base_logZ_err))
     ess = evidence.effective_sample_size
     pareto_k = _pareto_k(posterior)
-    # A row is reliable when the Kish ESS clears the floor and, where a Pareto
-    # tail could be fitted (smooth priors), its k-hat is below 0.7.
-    reliable = bool(ess is not None and ess >= ess_warn)
-    if np.isfinite(pareto_k):
-        reliable = reliable and pareto_k < 0.7
+    # A row is reliable when the Kish ESS clears the floor and the Pareto k-hat is
+    # finite and below 0.7. A non-finite k-hat means the tail fit failed for want
+    # of surviving samples, so the row is treated as unreliable.
+    reliable = bool(
+        ess is not None and ess >= ess_warn and np.isfinite(pareto_k) and pareto_k < 0.7
+    )
     return {
         "prior": name,
         "log_evidence_ext": evidence.log_evidence,

@@ -97,10 +97,16 @@ def _evaluate(ctx, log_r, logf, frac_sigma=0.0):
 
 
 def _reliable(m):
-    """Reliability gate: ESS above floor and (where fitted) k-hat < 0.7."""
+    """Reliability gate: ESS above the floor and a finite Pareto k-hat < 0.7.
+
+    A reweighted cell with enough surviving samples yields a finite k-hat (the base
+    posterior weights vary within the region), so a non-finite k-hat means the fit
+    failed for want of samples and the cell is unreliable. The direct-NS baseline,
+    which has no k-hat, is marked reliable where it is saved, not here.
+    """
     ess_ok = m["ess"] is not None and m["ess"] >= ESS_FLOOR
     k = m["pareto_k"]
-    return bool(ess_ok and ((not np.isfinite(k)) or k < 0.7))
+    return bool(ess_ok and np.isfinite(k) and k < 0.7)
 
 
 def _cell(ctx, method, params, m, log_r, flip=None):
