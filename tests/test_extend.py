@@ -74,6 +74,24 @@ def test_rejected_samples_carry_zero_weight():
     assert np.isclose(r.log_bayes_factor, -np.log(2), atol=1e-6)
 
 
+def test_bayes_factor_err_excludes_base_evidence_err():
+    """lnB error is bootstrap-only; the base nested logZ error enters only logZ_ext."""
+    rng = np.random.default_rng(3)
+    n = 1500
+    base_weights = rng.exponential(1.0, n)
+    logL_base = rng.normal(0, 1, n)
+    logL_ext = logL_base + rng.normal(-0.2, 0.3, n)
+    base_err = 0.25
+    r = extend_evidence(base_weights, logL_base, logL_ext, np.zeros(n),
+                        base_log_evidence=-100.0, base_log_evidence_err=base_err,
+                        n_bootstrap=200, seed=0)
+    # The Bayes-factor error must NOT include the base nested-logZ error.
+    assert r.log_bayes_factor_err < np.hypot(r.log_bayes_factor_err, base_err) - 1e-6
+    # The absolute logZ_ext error DOES combine it in quadrature.
+    expected_ext_err = np.hypot(r.log_bayes_factor_err, base_err)
+    assert np.isclose(r.log_evidence_ext_err, expected_ext_err, atol=1e-9)
+
+
 def test_consistency_check():
     """base_logL_consistency reports the max stored-vs-fresh discrepancy."""
     n = 500

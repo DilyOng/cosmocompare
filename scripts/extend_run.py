@@ -60,8 +60,6 @@ def main():
                         help="new parameter name; inferred if omitted")
     parser.add_argument("--lcdm-value", type=float, default=None,
                         help="value recovering LCDM; inferred if omitted")
-    parser.add_argument("--max-samples", type=int, default=None,
-                        help="cap to the top-weight N base samples (default: all)")
     parser.add_argument("--n-cores", type=int, default=None)
     parser.add_argument("--n-bootstrap", type=int, default=1000)
     parser.add_argument("--seed", type=int, default=0)
@@ -105,13 +103,9 @@ def main():
         raise SystemExit(f"No LCDM limit known for {new_param!r}; pass --lcdm-value.")
     print(f"new parameter: {new_param}  (LCDM limit = {lcdm_value})")
 
-    # Cap to the top-weight samples if asked (keeps the posterior bulk).
-    if args.max_samples and len(base) > args.max_samples:
-        w = np.asarray(base.get_weights(), dtype=float)
-        keep = np.argsort(w)[-args.max_samples:]
-        base = base.iloc[np.sort(keep)]
-        print(f"capped base run to the top-weight {len(base)} samples")
-
+    # The full nested chain is reweighted: no top-weight truncation. Deterministic
+    # top-weight trimming would bias the Bayes factor downward and blind k-hat;
+    # importance sampling for evidence needs every sample.
     prior = prior_from_yaml(ext_yaml, new_param)
     # Proposal = prior (q = pi), so the correction vanishes and we measure the
     # honest effective sample size of the bridge.

@@ -55,8 +55,10 @@ class ExtendResult:
         ``log(Z_ext / Z_base)`` and so, against the base model, the log Bayes
         factor for the extended model.
     log_bayes_factor_err : float
-        Bootstrap standard deviation of :attr:`log_bayes_factor`, combined with
-        the base nested ``log Z`` error.
+        Bootstrap standard deviation of :attr:`log_bayes_factor`. The importance
+        estimator forms the evidence *ratio* directly, so the base nested
+        ``log Z`` cancels and its error does **not** enter here; it enters only
+        :attr:`log_evidence_ext_err`.
     log_evidence_ext : float
         Absolute ``log Z_ext``.
     log_evidence_ext_err : float
@@ -192,9 +194,9 @@ def extend_evidence(
 
     return ExtendResult(
         log_bayes_factor=evidence.log_ratio,
-        log_bayes_factor_err=float(
-            np.hypot(evidence.log_ratio_err, base_log_evidence_err)
-        ),
+        # The ratio Z_ext/Z_base is estimated directly, so the base nested logZ
+        # cancels: its error must NOT be added here (it enters log_evidence_ext).
+        log_bayes_factor_err=evidence.log_ratio_err,
         log_evidence_ext=evidence.log_evidence,
         log_evidence_ext_err=evidence.log_evidence_err,
         effective_sample_size=ess,
