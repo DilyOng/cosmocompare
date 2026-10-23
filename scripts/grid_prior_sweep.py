@@ -63,6 +63,26 @@ def read_logf(stem):
     return float(np.log(nprior / ndiscarded))
 
 
+def strip_bom_columns(samples):
+    r"""Strip a leading UTF-8 BOM (``﻿``) from a chain's column labels.
+
+    Some chains' ``.paramnames`` files were written with a byte-order mark, which
+    anesthetic reads into the first parameter's name (for example
+    ``'﻿Alens'`` instead of ``'Alens'``). Any lookup of that parameter by
+    name then raises ``KeyError`` and the reweighting of that pair fails while the
+    direct-nested baseline, which never indexes it, still succeeds. This renames
+    the affected columns in place so the parameter is addressable again.
+    """
+    def fix(label):
+        if isinstance(label, tuple):
+            return tuple(x.lstrip("﻿") if isinstance(x, str) else x
+                         for x in label)
+        return label.lstrip("﻿") if isinstance(label, str) else label
+
+    samples.columns = samples.columns.map(fix)
+    return samples
+
+
 def enumerate_pairs(models, base_model, primary=None, fallback=None):
     """Return the sorted list of (model, dataset) pairs with both chains present."""
     pairs = []
@@ -131,8 +151,8 @@ def run_pair(model, dataset, args, catalogue):
     base_stem = resolve_chain_stem(args.base_model, dataset, primary=args.primary,
                                    fallback=args.fallback)
     source = "new_grid" if "new_grid" in str(ext_stem) else "grid"
-    ext = read_chains(str(ext_stem))
-    base = read_chains(str(base_stem))
+    ext = strip_bom_columns(read_chains(str(ext_stem)))
+    base = strip_bom_columns(read_chains(str(base_stem)))
     logf = 0.0 if args.no_logf else read_logf(ext_stem) - read_logf(base_stem)
 
     base_logZ, base_logZ_err = nested_evidence(base, args.nsamples)
