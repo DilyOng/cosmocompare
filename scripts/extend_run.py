@@ -175,6 +175,9 @@ def main():
     parser.add_argument("--primary", default=None)
     parser.add_argument("--fallback", default=None)
     parser.add_argument("--outdir", default="cc_extend")
+    parser.add_argument("--save-samples", action="store_true",
+                        help="also save the importance-reweighted samples and "
+                             "combined weights to an .npz (for corner plots).")
     args = parser.parse_args()
 
     os.makedirs(args.outdir, exist_ok=True)
@@ -262,7 +265,7 @@ def main():
                          {"yaml_path": ext_yaml, "new_params": new_params_cfg})
 
     rng = np.random.default_rng(args.seed)
-    result, _ = run_extension(
+    result, posterior = run_extension(
         base, target, calc, limits,
         base_log_evidence=base_logZ, base_log_evidence_err=base_logZ_err,
         rng=rng, n_cores=args.n_cores, n_bootstrap=args.n_bootstrap, seed=args.seed,
@@ -294,6 +297,17 @@ def main():
             f"_{args.proposal}_N{len(base)}_m{args.n_draws}")
     with open(os.path.join(args.outdir, f"extend_{name}.json"), "w") as f:
         json.dump(out, f, indent=2)
+
+    if args.save_samples:
+        # Save the importance-reweighted extended posterior (shared sampled params
+        # + the new ones) with its combined weights, so a corner plot can overlay
+        # it on the full extended nested chain.
+        cols = list(ext_sampled) + [p for p in new_params if p not in ext_sampled]
+        data = {c: _column(posterior, c) for c in cols}
+        data["weights"] = np.asarray(posterior.get_weights(), dtype=float)
+        npz_path = os.path.join(args.outdir, f"extend_{name}_samples.npz")
+        np.savez_compressed(npz_path, **data)
+        print(f"saved reweighted samples to {npz_path}")
 
     print("\n=== RESULT ===")
     print(f"  IS     ln B = {result.log_bayes_factor:+.3f} +/- "
