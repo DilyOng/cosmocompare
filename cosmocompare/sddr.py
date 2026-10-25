@@ -162,12 +162,15 @@ def savage_dickey(
     weights = np.asarray(samples.get_weights(), dtype=float)
 
     kde = gaussian_kde(values.T, weights=weights, bw_method=bw_method)
-    log_post_point = float(np.atleast_1d(kde.logpdf(pt))[0])
+    # Use log(pdf) rather than kde.logpdf: scipy's weighted gaussian_kde.logpdf
+    # returns NaN (at least through 1.13.x) while the weighted pdf/evaluate path
+    # is correct, so go through pdf and take the log ourselves.
+    log_post_point = float(np.log(np.atleast_1d(kde.pdf(pt))[0]))
 
     # Tail check: the point is inside the `credible` highest-density region when
     # the posterior mass at density >= its density is below `credible`. A point in
     # the far tail (mass above it close to 1) is where the KDE is least reliable.
-    log_dens_samples = kde.logpdf(values.T)
+    log_dens_samples = np.log(kde.pdf(values.T))
     mass_above = float(
         np.sum(weights[log_dens_samples >= log_post_point]) / np.sum(weights)
     )
