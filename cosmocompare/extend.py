@@ -318,6 +318,7 @@ def run_extension(
     ess_floor=100.0,
     n_bootstrap=1000,
     seed=None,
+    n_draws=1,
 ):
     r"""Reweight ``base_samples`` onto the extended model and return the evidence.
 
@@ -352,17 +353,21 @@ def run_extension(
         reweighted onto the extended model (for parameter estimation; its nested
         ``logZ`` is meaningless, use the result's evidence).
     """
+    from scipy.special import logsumexp
+
     from cosmocompare.reweight import apply_log_weights
 
     rng = np.random.default_rng() if rng is None else rng
+    n_draws = max(1, int(n_draws))
 
-    # Augment with the new parameter(s) drawn from their proposal.
+    # First augmentation fixes the base samples, weights and stored logL. For
+    # n_draws > 1 (Rao-Blackwellisation) the new parameter is redrawn n_draws times
+    # and the per-sample ratio is averaged, cutting the variance from marginalising
+    # the new parameter without biasing the estimate.
     augmented = target_model.augment_samples(base_samples, rng=rng)
-    logL_ext = calculator.log_likelihood(
-        augmented, use_parallel=use_parallel, n_cores=n_cores
-    )
 
-    # Re-evaluate the base likelihood in the LCDM limit with the SAME calculator.
+    # Base likelihood in the base-model limit: independent of the drawn new
+    # parameter, so it is evaluated once per base sample rather than once per draw.
     base_frame = augmented.copy()
     for name, value in lcdm_limit.items():
         base_frame[name] = value
@@ -370,15 +375,30 @@ def run_extension(
         base_frame, use_parallel=use_parallel, n_cores=n_cores
     )
 
-    correction = target_model.log_prior_correction(augmented)
+    # Numerator log( mean_m [ L_ext(theta, phi_m) * pi(phi_m)/q(phi_m) ] ) per
+    # sample, averaged over the n_draws proposal draws of the new parameter.
+    terms = []
+    for draw in range(n_draws):
+        aug = (augmented if draw == 0
+               else target_model.augment_samples(base_samples, rng=rng))
+        logL_ext_m = np.asarray(
+            calculator.log_likelihood(aug, use_parallel=use_parallel,
+                                      n_cores=n_cores), dtype=float)
+        corr_m = np.asarray(target_model.log_prior_correction(aug), dtype=float)
+        terms.append(logL_ext_m + corr_m)
+    log_num = logsumexp(np.vstack(terms), axis=0) - np.log(n_draws)
+
     base_weights = np.asarray(augmented.get_weights(), dtype=float)
     stored_logL = np.asarray(augmented.logL, dtype=float)
 
+    # The correction is already folded into log_num, so pass zero here; then
+    # extend_evidence forms log_w = log_num - logL_base. For n_draws == 1 this is
+    # identical to the single-draw estimator logL_ext - logL_base + correction.
     result = extend_evidence(
         base_weights,
         logL_base,
-        logL_ext,
-        correction,
+        log_num,
+        np.zeros_like(log_num),
         base_log_evidence,
         base_log_evidence_err=base_log_evidence_err,
         stored_logL=stored_logL,
@@ -387,6 +407,6 @@ def run_extension(
         seed=seed,
     )
 
-    log_w = (logL_ext - logL_base) + correction
+    log_w = log_num - logL_base
     posterior = apply_log_weights(augmented, log_w)
     return result, posterior

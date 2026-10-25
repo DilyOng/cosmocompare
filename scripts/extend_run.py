@@ -164,6 +164,9 @@ def main():
                              "to the extended posterior, to raise the ESS)")
     parser.add_argument("--proposal-inflate", type=float, default=1.5,
                         help="inflate the informed-proposal std by this factor")
+    parser.add_argument("--n-draws", type=int, default=1,
+                        help="Rao-Blackwell: draws of the new parameter(s) per base "
+                             "sample, averaged (>1 raises the ESS at n_draws x cost)")
     parser.add_argument("--n-cores", type=int, default=None)
     parser.add_argument("--n-bootstrap", type=int, default=1000)
     parser.add_argument("--seed", type=int, default=0)
@@ -263,6 +266,7 @@ def main():
         base, target, calc, limits,
         base_log_evidence=base_logZ, base_log_evidence_err=base_logZ_err,
         rng=rng, n_cores=args.n_cores, n_bootstrap=args.n_bootstrap, seed=args.seed,
+        n_draws=args.n_draws,
     )
 
     out = {
@@ -271,6 +275,7 @@ def main():
         "proposal": args.proposal,
         "proposal_inflate": (args.proposal_inflate if args.proposal == "informed"
                              else None),
+        "n_draws": args.n_draws,
         "posterior_samples": int(len(base)),
         "n_samples": result.n_samples,
         "is_log_bayes_factor": result.log_bayes_factor,
@@ -286,7 +291,7 @@ def main():
         "reliable": result.reliable,
     }
     name = (f"{args.base_model}_to_{args.ext_model}_{args.dataset}"
-            f"_{args.proposal}_N{len(base)}")
+            f"_{args.proposal}_N{len(base)}_m{args.n_draws}")
     with open(os.path.join(args.outdir, f"extend_{name}.json"), "w") as f:
         json.dump(out, f, indent=2)
 
