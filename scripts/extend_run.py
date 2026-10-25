@@ -77,8 +77,31 @@ def prior_from_yaml(yaml_path, name):
     lo, hi = pr.get("min"), pr.get("max")
     if lo is None or hi is None:
         raise SystemExit(
-            f"Could not read a uniform prior for {name!r} from {yaml_path}")
+            f"Could not read a uniform (min/max) prior for {name!r} from "
+            f"{yaml_path} (got {pr!r}); only uniform priors are supported, so a "
+            f"non-uniform prior must be handled explicitly rather than coerced.")
     return {"type": "uniform", "min": float(lo), "max": float(hi)}
+
+
+def sampled_params_from_yaml(yaml_path):
+    """Return the SAMPLED parameter names (those with a prior block) in a yaml.
+
+    New parameters are inferred as ``ext_sampled - base_sampled`` using this,
+    rather than from the chain's columns: anesthetic columns also carry derived
+    parameters, so a new parameter present as a derived column in the base chain
+    (for example a fixed ``w``) would otherwise be misread as shared and never
+    drawn, silently collapsing the Bayes factor.
+    """
+    with open(yaml_path) as stream:
+        cfg = yaml.safe_load(stream)
+    return [name for name, p in cfg.get("params", {}).items()
+            if isinstance(p, dict) and isinstance(p.get("prior"), dict)]
+
+
+def _uniform_bounds(yaml_path, name):
+    """Return the ``(min, max)`` of a uniform prior, rounded for comparison."""
+    pr = prior_from_yaml(yaml_path, name)
+    return (round(pr["min"], 10), round(pr["max"], 10))
 
 
 def main():
@@ -120,15 +143,44 @@ def main():
           f"ext={ext_logZ:.3f}+/-{ext_logZ_err:.3f}  nested ln B={nested_lnB:+.3f}")
 
     calc = LikelihoodCalculator(ext_yaml)
-    # Infer the new parameter(s): those the extended model samples that the base
-    # chain lacks. Universal in the base/extended pair, and multi-parameter.
-    base_cols = {c[0] if isinstance(c, tuple) else c for c in base.columns}
+    # Infer the new parameter(s) as ext_sampled - base_sampled, taking the base
+    # sampled parameters from the base model's yaml (NOT the chain columns, which
+    # also carry derived parameters and would misclassify a new parameter present
+    # as a derived column in the base chain).
+    base_yaml = resolve_input_yaml(base_stem)
+    base_sampled = set(sampled_params_from_yaml(base_yaml))
+    ext_sampled = set(calc.sampled_params)
     try:
-        new_params = infer_new_parameters(calc.sampled_params, base_cols,
+        new_params = infer_new_parameters(calc.sampled_params, base_sampled,
                                           requested=args.new_param)
+    except ValueError as exc:
+        raise SystemExit(str(exc))
+    # Validate: every new parameter is sampled in ext and not sampled in base.
+    for p in new_params:
+        if p not in ext_sampled:
+            raise SystemExit(
+                f"{p!r} is not a sampled parameter of {args.ext_model!r}.")
+        if p in base_sampled:
+            raise SystemExit(
+                f"{p!r} is sampled in the base {args.base_model!r}; it is shared, "
+                f"not new - do not pass it as --new-param.")
+    try:
         limits = resolve_base_limits(new_params, values=args.lcdm_value)
     except ValueError as exc:
         raise SystemExit(str(exc))
+    # The shared-prior cancellation is exact only when the shared-parameter priors
+    # match between base and ext; warn (rather than silently bias ln B) otherwise.
+    mismatched = []
+    for p in sorted(ext_sampled & base_sampled):
+        try:
+            if _uniform_bounds(ext_yaml, p) != _uniform_bounds(base_yaml, p):
+                mismatched.append(p)
+        except SystemExit:
+            pass
+    if mismatched:
+        print(f"WARNING: shared-parameter priors differ between base and ext for "
+              f"{mismatched}; shared-prior cancellation assumes they match, so "
+              f"ln B may be biased.")
     print(f"new parameter(s): {new_params}")
     print(f"base limit(s): {limits}")
 
@@ -178,6 +230,11 @@ def main():
     print(f"  base logL consistency (max|stored-fresh|) = "
           f"{result.base_logL_consistency:.3g}")
     print(f"  reliable = {result.reliable}")
+    if (result.base_logL_consistency is not None
+            and np.isfinite(result.base_logL_consistency)
+            and result.base_logL_consistency > 1.0):
+        print("  WARNING: large base-logL inconsistency; the fresh base likelihood "
+              "may not reproduce the chain's - interpret ln B with care.")
 
 
 if __name__ == "__main__":
