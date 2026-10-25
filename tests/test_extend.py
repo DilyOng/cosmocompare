@@ -1,8 +1,16 @@
 """Tests for the cross-model importance-sampling estimator (pure, no Cobaya)."""
 
 import numpy as np
+import pytest
 
-from cosmocompare.extend import extend_evidence
+from cosmocompare.extend import (
+    extend_evidence,
+    infer_new_parameters,
+    resolve_base_limits,
+)
+
+# A typical shared-parameter set shared by every base chain in the grid.
+_SHARED = ["logA", "ns", "H0", "ombh2", "omch2", "tau"]
 
 
 def test_constant_ratio_recovers_bayes_factor():
@@ -90,6 +98,46 @@ def test_bayes_factor_err_excludes_base_evidence_err():
     # The absolute logZ_ext error DOES combine it in quadrature.
     expected_ext_err = np.hypot(r.log_bayes_factor_err, base_err)
     assert np.isclose(r.log_evidence_ext_err, expected_ext_err, atol=1e-9)
+
+
+def test_infer_single_parameter_lcdm_to_wcdm():
+    """LCDM -> wCDM: the one sampled parameter the base lacks is w."""
+    sampled = _SHARED + ["w"]
+    assert infer_new_parameters(sampled, _SHARED) == ["w"]
+    assert resolve_base_limits(["w"]) == {"w": -1.0}
+
+
+def test_infer_two_parameters_lcdm_to_w0wacdm():
+    """LCDM -> w0waCDM: both w and wa are new, with limits (-1, 0)."""
+    sampled = _SHARED + ["w", "wa"]
+    new = infer_new_parameters(sampled, _SHARED)
+    assert new == ["w", "wa"]
+    assert resolve_base_limits(new) == {"w": -1.0, "wa": 0.0}
+
+
+def test_infer_arbitrary_base_wcdm_to_w0wacdm():
+    """Universal in the base: wCDM -> w0waCDM adds only wa (w is shared)."""
+    base = _SHARED + ["w"]
+    sampled = _SHARED + ["w", "wa"]
+    assert infer_new_parameters(sampled, base) == ["wa"]
+    assert resolve_base_limits(["wa"]) == {"wa": 0.0}
+
+
+def test_resolve_limits_explicit_values_and_order():
+    """Explicit --lcdm-value maps positionally to the new parameters."""
+    assert resolve_base_limits(["w", "wa"], values=[-1.0, 0.0]) == {
+        "w": -1.0, "wa": 0.0}
+    assert resolve_base_limits(["Alens"]) == {"Alens": 1.0}
+
+
+def test_inference_and_limit_errors():
+    """Clear errors: nothing new, count mismatch, unknown limit."""
+    with pytest.raises(ValueError):
+        infer_new_parameters(_SHARED + ["w"], _SHARED + ["w"])  # nothing new
+    with pytest.raises(ValueError):
+        resolve_base_limits(["w", "wa"], values=[-1.0])  # count mismatch
+    with pytest.raises(ValueError):
+        resolve_base_limits(["mystery_param"])  # no known limit, no value
 
 
 def test_consistency_check():

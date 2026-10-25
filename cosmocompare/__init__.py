@@ -45,7 +45,14 @@ from cosmocompare.evidence import (
     log_bayes_factor,
     nested_evidence,
 )
-from cosmocompare.extend import ExtendResult, extend_evidence, run_extension
+from cosmocompare.extend import (
+    BASE_LIMITS,
+    ExtendResult,
+    extend_evidence,
+    infer_new_parameters,
+    resolve_base_limits,
+    run_extension,
+)
 from cosmocompare.grid import all_jobs, index_of_job, job_by_index
 from cosmocompare.models import ModelFactory, TargetModel
 from cosmocompare.parameters import Parameter
@@ -72,11 +79,14 @@ __all__ = [
     "__version__",
     "Catalogue",
     "Cell",
+    "BASE_LIMITS",
     "EvidenceResult",
     "ExtendResult",
     "LCDM_CENTRE",
     "ModelSpec",
     "extend_evidence",
+    "infer_new_parameters",
+    "resolve_base_limits",
     "run_extension",
     "REGISTRY",
     "available_datasets",

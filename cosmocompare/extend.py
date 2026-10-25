@@ -44,6 +44,101 @@ from cosmocompare.diagnostics import effective_sample_size
 from cosmocompare.evidence import importance_evidence
 from cosmocompare.psis import psis
 
+#: Value of each extra parameter that collapses an extended model back onto its
+#: base (the "limit" recovering the nested sub-model). Covers every extension in
+#: the grid; pass explicit values to override or for a parameter not listed.
+BASE_LIMITS = {
+    "w": -1.0, "w0": -1.0, "wa": 0.0,
+    "omk": 0.0, "omegak": 0.0,
+    "Alens": 1.0, "nrun": 0.0, "r": 0.0,
+}
+
+
+def infer_new_parameters(sampled_params, base_columns, requested=None):
+    """Return the extended model's new parameter(s).
+
+    These are the parameters the extended model samples that the base chain does
+    not, so the method is universal in the base/extended pair rather than tied to
+    :math:`\\Lambda\\mathrm{CDM} \\to w\\mathrm{CDM}`. Order follows
+    ``sampled_params``. A multi-parameter extension (for example ``w0waCDM``, which
+    adds ``w`` and ``wa``) returns a list of length greater than one.
+
+    Parameters
+    ----------
+    sampled_params : sequence of str
+        The extended model's sampled parameter names (Cobaya order).
+    base_columns : iterable of str
+        The base chain's parameter names.
+    requested : sequence of str, optional
+        Explicit new-parameter names; returned as-is when given.
+
+    Returns
+    -------
+    list of str
+        The new parameter name(s).
+
+    Raises
+    ------
+    ValueError
+        When nothing is new (the base already samples every extended parameter).
+    """
+    if requested:
+        return list(requested)
+    base = set(base_columns)
+    new = [p for p in sampled_params if p not in base]
+    if not new:
+        raise ValueError(
+            "No new parameter found: the base chain already samples every "
+            "parameter of the extended model."
+        )
+    return new
+
+
+def resolve_base_limits(new_params, values=None, table=None):
+    """Map each new parameter to the value that recovers the base model.
+
+    Parameters
+    ----------
+    new_params : sequence of str
+        The new parameter name(s).
+    values : sequence of float, optional
+        Explicit limit values, one per entry of ``new_params`` and in that order.
+        When omitted, each value is looked up in ``table``.
+    table : dict, optional
+        Name-to-limit lookup. Defaults to :data:`BASE_LIMITS`.
+
+    Returns
+    -------
+    dict
+        ``{name: limit_value}`` for every new parameter.
+
+    Raises
+    ------
+    ValueError
+        When the number of explicit values does not match ``new_params``, or when
+        a parameter has no known limit and no explicit value was given.
+    """
+    table = BASE_LIMITS if table is None else table
+    if values is not None:
+        if len(values) != len(new_params):
+            raise ValueError(
+                f"got {len(values)} limit value(s) for {len(new_params)} new "
+                f"parameter(s) {list(new_params)}."
+            )
+        return {name: float(v) for name, v in zip(new_params, values)}
+    limits, missing = {}, []
+    for name in new_params:
+        if name in table:
+            limits[name] = float(table[name])
+        else:
+            missing.append(name)
+    if missing:
+        raise ValueError(
+            f"no base-limit known for {missing}; pass explicit values via "
+            f"--lcdm-value."
+        )
+    return limits
+
 
 @dataclass
 class ExtendResult:
