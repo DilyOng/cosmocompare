@@ -114,6 +114,36 @@ def sampled_params_from_yaml(yaml_path):
             if isinstance(p, dict) and isinstance(p.get("prior"), dict)]
 
 
+def _column(samples, name):
+    """Return a chain column by name, tolerating anesthetic tuple labels."""
+    if name in samples.columns:
+        return np.asarray(samples[name], dtype=float)
+    for c in samples.columns:
+        if isinstance(c, tuple) and c[0] == name:
+            return np.asarray(samples[c], dtype=float)
+    raise SystemExit(f"column {name!r} not found in the extended chain.")
+
+
+def informed_proposal(ext_samples, name, prior, inflate=1.5):
+    """Build a truncated-Gaussian proposal fitted to the extended posterior.
+
+    The proposal is centred on the extended model's posterior mean of ``name``
+    with its posterior standard deviation (inflated by ``inflate`` for safe tail
+    coverage), truncated to the prior box. Drawing the new parameter from where
+    the extended likelihood actually has support, rather than from the broad flat
+    prior, raises the effective sample size; the ``log(prior/proposal)``
+    correction keeps the estimator unbiased. Using the extended chain only sets
+    the proposal (efficiency), not the estimand, so it is legitimate.
+    """
+    w = np.asarray(ext_samples.get_weights(), dtype=float)
+    x = _column(ext_samples, name)
+    mean = float(np.average(x, weights=w))
+    var = float(np.average((x - mean) ** 2, weights=w))
+    std = max(np.sqrt(var) * float(inflate), 1e-6)
+    return {"type": "truncated_gaussian", "mean": mean, "std": std,
+            "min": prior["min"], "max": prior["max"]}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-model", default="lcdm")
@@ -128,6 +158,12 @@ def main():
     parser.add_argument("--posterior-samples", type=int, default=5000,
                         help="compress the base chain to this many equal-weight "
                              "posterior draws before reweighting (0 = full chain)")
+    parser.add_argument("--proposal", choices=["prior", "informed"], default="prior",
+                        help="new-parameter proposal: 'prior' (q=pi, weight "
+                             "L_ext/L_base) or 'informed' (truncated Gaussian fitted "
+                             "to the extended posterior, to raise the ESS)")
+    parser.add_argument("--proposal-inflate", type=float, default=1.5,
+                        help="inflate the informed-proposal std by this factor")
     parser.add_argument("--n-cores", type=int, default=None)
     parser.add_argument("--n-bootstrap", type=int, default=1000)
     parser.add_argument("--seed", type=int, default=0)
@@ -204,10 +240,21 @@ def main():
     print(f"new parameter(s): {new_params}")
     print(f"base limit(s): {limits}")
 
-    # Proposal = prior (q = pi), so the correction vanishes and we measure the
-    # honest effective sample size of the bridge.
-    new_params_cfg = {p: {"prior": prior_from_yaml(ext_yaml, p)}
-                      for p in new_params}
+    # Build each new parameter's prior and (optionally) an informed proposal.
+    # With q = prior the correction vanishes (weight = L_ext/L_base); with an
+    # informed proposal the new parameter is drawn where the extended likelihood
+    # has support, raising the ESS, and log(prior/proposal) keeps it unbiased.
+    new_params_cfg = {}
+    for p in new_params:
+        prior = prior_from_yaml(ext_yaml, p)
+        cfg_p = {"prior": prior}
+        if args.proposal == "informed":
+            cfg_p["proposal"] = informed_proposal(ext, p, prior,
+                                                  inflate=args.proposal_inflate)
+        new_params_cfg[p] = cfg_p
+    print(f"proposal: {args.proposal}"
+          + (f" (inflate {args.proposal_inflate})" if args.proposal == "informed"
+             else ""))
     target = TargetModel(args.ext_model,
                          {"yaml_path": ext_yaml, "new_params": new_params_cfg})
 
@@ -221,6 +268,9 @@ def main():
     out = {
         "base_model": args.base_model, "ext_model": args.ext_model,
         "dataset": args.dataset, "new_params": new_params, "limits": limits,
+        "proposal": args.proposal,
+        "proposal_inflate": (args.proposal_inflate if args.proposal == "informed"
+                             else None),
         "posterior_samples": int(len(base)),
         "n_samples": result.n_samples,
         "is_log_bayes_factor": result.log_bayes_factor,
@@ -235,7 +285,8 @@ def main():
         "base_logL_consistency": result.base_logL_consistency,
         "reliable": result.reliable,
     }
-    name = f"{args.base_model}_to_{args.ext_model}_{args.dataset}"
+    name = (f"{args.base_model}_to_{args.ext_model}_{args.dataset}"
+            f"_{args.proposal}_N{len(base)}")
     with open(os.path.join(args.outdir, f"extend_{name}.json"), "w") as f:
         json.dump(out, f, indent=2)
 
