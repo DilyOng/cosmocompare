@@ -11,21 +11,25 @@ model as the gold-standard validation.
 
 The driver is universal: the base and extended models are arbitrary as long as the
 extension is nested in the base (it reduces to the base when its extra parameters
-take their limit values). The new parameter(s) are inferred as those the extended
-model samples that the base chain lacks, and their limit values come from
+take their limit values). The new parameter(s) are inferred as those SAMPLED by the
+extended model that the base model does not sample (read from the base yaml, not the
+chain columns, which also carry derived parameters). Limit values come from
 :data:`cosmocompare.extend.BASE_LIMITS` (override with --lcdm-value). Multi-parameter
-extensions such as w0waCDM (which adds w and wa) are handled.
+extensions such as w0waCDM (adds w and wa) are handled.
 
-Reports Kish ESS, its fraction, the PSIS Pareto k-hat (the reliability diagnostic
-that catches support mismatch), the largest single weight, and the stored-vs-fresh
-base-likelihood consistency.
+By default the base chain is compressed to a fixed number of equal-weight posterior
+draws (--posterior-samples), so the estimator is the plain mean of the likelihood
+ratio and the cost is a few thousand likelihood calls rather than the whole nested
+chain. The nested evidences used for the comparison are always read from the full
+runs, before compression.
 
-Needs a Cobaya environment. Examples::
+Needs a Cobaya environment (COBAYA_PACKAGES_PATH set, run under a Slurm allocation).
+Examples::
 
     # LCDM -> wCDM (one new parameter, inferred)
-    python extend_run.py --ext-model wlcdm --dataset bao.desi_dr2
+    python extend_run.py --ext-model wlcdm --dataset bao.desi_dr2 --n-cores 1
     # LCDM -> w0waCDM (two new parameters, inferred)
-    python extend_run.py --ext-model walcdm --dataset bao.desi_dr2
+    python extend_run.py --ext-model walcdm --dataset bao.desi_dr2 --n-cores 1
     # wCDM -> w0waCDM (arbitrary nested base)
     python extend_run.py --base-model wlcdm --ext-model walcdm --dataset bao.desi_dr2
 """
@@ -49,6 +53,20 @@ from cosmocompare.likelihood import LikelihoodCalculator
 from cosmocompare.models import TargetModel
 
 
+def _load_yaml(path):
+    """Load a Cobaya input yaml, tolerating Cobaya's custom YAML tags."""
+    with open(path) as stream:
+        text = stream.read()
+    try:
+        return yaml.safe_load(text)
+    except yaml.YAMLError:
+        try:
+            from cobaya.yaml import yaml_load
+            return yaml_load(text)
+        except Exception:
+            return yaml.load(text, Loader=yaml.UnsafeLoader)
+
+
 def resolve_input_yaml(stem):
     """Return the Cobaya input yaml for a chain stem.
 
@@ -70,8 +88,7 @@ def resolve_input_yaml(stem):
 
 def prior_from_yaml(yaml_path, name):
     """Return a uniform prior dict for ``name`` read from a Cobaya input file."""
-    with open(yaml_path) as stream:
-        cfg = yaml.safe_load(stream)
+    cfg = _load_yaml(yaml_path)
     p = cfg.get("params", {}).get(name, {})
     pr = p.get("prior", {}) if isinstance(p, dict) else {}
     lo, hi = pr.get("min"), pr.get("max")
@@ -92,16 +109,9 @@ def sampled_params_from_yaml(yaml_path):
     (for example a fixed ``w``) would otherwise be misread as shared and never
     drawn, silently collapsing the Bayes factor.
     """
-    with open(yaml_path) as stream:
-        cfg = yaml.safe_load(stream)
+    cfg = _load_yaml(yaml_path)
     return [name for name, p in cfg.get("params", {}).items()
             if isinstance(p, dict) and isinstance(p.get("prior"), dict)]
-
-
-def _uniform_bounds(yaml_path, name):
-    """Return the ``(min, max)`` of a uniform prior, rounded for comparison."""
-    pr = prior_from_yaml(yaml_path, name)
-    return (round(pr["min"], 10), round(pr["max"], 10))
 
 
 def main():
@@ -115,6 +125,9 @@ def main():
     parser.add_argument("--lcdm-value", nargs="+", type=float, default=None,
                         help="limit value(s) recovering the base, one per new "
                              "parameter; inferred from BASE_LIMITS if omitted")
+    parser.add_argument("--posterior-samples", type=int, default=5000,
+                        help="compress the base chain to this many equal-weight "
+                             "posterior draws before reweighting (0 = full chain)")
     parser.add_argument("--n-cores", type=int, default=None)
     parser.add_argument("--n-bootstrap", type=int, default=1000)
     parser.add_argument("--seed", type=int, default=0)
@@ -132,22 +145,28 @@ def main():
     ext_stem = resolve_chain_stem(args.ext_model, args.dataset,
                                   primary=args.primary, fallback=args.fallback)
     ext_yaml = resolve_input_yaml(ext_stem)
+    base_yaml = resolve_input_yaml(base_stem)
     print(f"base: {base_stem}\next : {ext_stem}\nyaml: {ext_yaml}")
 
     base = read_chains(str(base_stem))
     ext = read_chains(str(ext_stem))
+    # Nested evidences from the FULL runs (needed for the gold-standard comparison),
+    # computed before any compression of the base chain.
     base_logZ, base_logZ_err = nested_evidence(base, args.nsamples)
     ext_logZ, ext_logZ_err = nested_evidence(ext, args.nsamples)
     nested_lnB = ext_logZ - base_logZ
     print(f"nested ln Z: base={base_logZ:.3f}+/-{base_logZ_err:.3f}  "
           f"ext={ext_logZ:.3f}+/-{ext_logZ_err:.3f}  nested ln B={nested_lnB:+.3f}")
 
+    # Compress the base to equal-weight posterior draws: the estimator becomes the
+    # plain mean of L_ext/L_base and the cost is a few thousand likelihood calls.
+    if args.posterior_samples and len(base) > args.posterior_samples:
+        base = base.compress(args.posterior_samples)
+        print(f"compressed base to {len(base)} equal-weight posterior samples")
+
     calc = LikelihoodCalculator(ext_yaml)
     # Infer the new parameter(s) as ext_sampled - base_sampled, taking the base
-    # sampled parameters from the base model's yaml (NOT the chain columns, which
-    # also carry derived parameters and would misclassify a new parameter present
-    # as a derived column in the base chain).
-    base_yaml = resolve_input_yaml(base_stem)
+    # sampled parameters from the base model's yaml (NOT the chain columns).
     base_sampled = set(sampled_params_from_yaml(base_yaml))
     ext_sampled = set(calc.sampled_params)
     try:
@@ -155,7 +174,6 @@ def main():
                                           requested=args.new_param)
     except ValueError as exc:
         raise SystemExit(str(exc))
-    # Validate: every new parameter is sampled in ext and not sampled in base.
     for p in new_params:
         if p not in ext_sampled:
             raise SystemExit(
@@ -169,14 +187,16 @@ def main():
     except ValueError as exc:
         raise SystemExit(str(exc))
     # The shared-prior cancellation is exact only when the shared-parameter priors
-    # match between base and ext; warn (rather than silently bias ln B) otherwise.
-    mismatched = []
-    for p in sorted(ext_sampled & base_sampled):
-        try:
-            if _uniform_bounds(ext_yaml, p) != _uniform_bounds(base_yaml, p):
-                mismatched.append(p)
-        except SystemExit:
-            pass
+    # match between base and ext; compare the raw prior blocks (covers non-uniform)
+    # and warn rather than silently bias ln B.
+    ext_cfg, base_cfg = _load_yaml(ext_yaml), _load_yaml(base_yaml)
+
+    def _prior(cfg, name):
+        p = cfg.get("params", {}).get(name, {})
+        return p.get("prior") if isinstance(p, dict) else None
+
+    mismatched = [p for p in sorted(ext_sampled & base_sampled)
+                  if _prior(ext_cfg, p) != _prior(base_cfg, p)]
     if mismatched:
         print(f"WARNING: shared-parameter priors differ between base and ext for "
               f"{mismatched}; shared-prior cancellation assumes they match, so "
@@ -185,8 +205,7 @@ def main():
     print(f"base limit(s): {limits}")
 
     # Proposal = prior (q = pi), so the correction vanishes and we measure the
-    # honest effective sample size of the bridge. The full nested chain is reused;
-    # no truncation (which would bias the Bayes factor and blind k-hat).
+    # honest effective sample size of the bridge.
     new_params_cfg = {p: {"prior": prior_from_yaml(ext_yaml, p)}
                       for p in new_params}
     target = TargetModel(args.ext_model,
@@ -202,6 +221,7 @@ def main():
     out = {
         "base_model": args.base_model, "ext_model": args.ext_model,
         "dataset": args.dataset, "new_params": new_params, "limits": limits,
+        "posterior_samples": int(len(base)),
         "n_samples": result.n_samples,
         "is_log_bayes_factor": result.log_bayes_factor,
         "is_log_bayes_factor_err": result.log_bayes_factor_err,
