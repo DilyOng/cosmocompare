@@ -41,7 +41,9 @@ def test_posterior_piled_at_point_favours_base():
     pytest.importorskip("scipy")
     samples = _gaussian_samples((-1.0, 0.0))
     res = savage_dickey(
-        samples, ("w", "wa"), {"w": -1.0, "wa": 0.0},
+        samples,
+        ("w", "wa"),
+        {"w": -1.0, "wa": 0.0},
         prior_bounds=[(-3.0, 1.0), (-3.0, 2.0)],
     )
     assert res.log_bayes_factor < 0
@@ -53,7 +55,9 @@ def test_posterior_far_from_point_favours_extended_and_flags_tail():
     pytest.importorskip("scipy")
     samples = _gaussian_samples((-0.5, -1.5))  # far from (-1, 0)
     res = savage_dickey(
-        samples, ("w", "wa"), {"w": -1.0, "wa": 0.0},
+        samples,
+        ("w", "wa"),
+        {"w": -1.0, "wa": 0.0},
         prior_bounds=[(-3.0, 1.0), (-3.0, 2.0)],
     )
     assert res.log_bayes_factor > 0
@@ -72,7 +76,9 @@ def test_point_outside_bounds_raises():
     samples = _gaussian_samples((-1.0, 0.0))
     with pytest.raises(ValueError):
         savage_dickey(
-            samples, ("w", "wa"), {"w": 5.0, "wa": 0.0},
+            samples,
+            ("w", "wa"),
+            {"w": 5.0, "wa": 0.0},
             prior_bounds=[(-3.0, 1.0), (-3.0, 2.0)],
         )
 
@@ -82,7 +88,9 @@ def test_hdr_mass_reported_and_consistent():
     pytest.importorskip("scipy")
     samples = _gaussian_samples((-1.0, 0.0))
     res = savage_dickey(
-        samples, ("w", "wa"), {"w": -1.0, "wa": 0.0},
+        samples,
+        ("w", "wa"),
+        {"w": -1.0, "wa": 0.0},
         prior_bounds=[(-3.0, 1.0), (-3.0, 2.0)],
     )
     assert 0.0 <= res.hdr_mass <= 1.0

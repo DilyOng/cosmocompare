@@ -132,8 +132,12 @@ def power_scale_sweep(
     for k, alpha in enumerate(alphas):
         cell_seed = None if seed is None else seed + k
         prior = power_scaled_logdensity(
-            bounds, log_shape_target, float(alpha),
-            log_shape_base=log_shape_base, params=p, n_mc=n_mc,
+            bounds,
+            log_shape_target,
+            float(alpha),
+            log_shape_base=log_shape_base,
+            params=p,
+            n_mc=n_mc,
         )
         evidence, _ = reweight_density(
             extended, prior, nsamples=nsamples, n_bootstrap=n_bootstrap, seed=cell_seed

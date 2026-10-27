@@ -20,8 +20,14 @@ def test_constant_ratio_recovers_bayes_factor():
     logL_base = np.linspace(-10, 0, n)
     logL_ext = logL_base + 0.5  # constant ratio -> Z_ext/Z_base = e^0.5
     r = extend_evidence(
-        base_weights, logL_base, logL_ext, np.zeros(n),
-        base_log_evidence=-100.0, base_log_evidence_err=0.1, n_bootstrap=100, seed=0,
+        base_weights,
+        logL_base,
+        logL_ext,
+        np.zeros(n),
+        base_log_evidence=-100.0,
+        base_log_evidence_err=0.1,
+        n_bootstrap=100,
+        seed=0,
     )
     assert np.isclose(r.log_bayes_factor, 0.5, atol=1e-6)
     assert np.isclose(r.log_evidence_ext, -99.5, atol=1e-6)  # base_logZ + lnB
@@ -38,8 +44,15 @@ def test_weighted_estimator_matches_direct_sum():
     dL = rng.normal(-0.3, 0.4, n)
     logL_ext = logL_base + dL
     expected = np.log(np.sum(base_weights * np.exp(dL)) / np.sum(base_weights))
-    r = extend_evidence(base_weights, logL_base, logL_ext, np.zeros(n),
-                        base_log_evidence=0.0, n_bootstrap=50, seed=0)
+    r = extend_evidence(
+        base_weights,
+        logL_base,
+        logL_ext,
+        np.zeros(n),
+        base_log_evidence=0.0,
+        n_bootstrap=50,
+        seed=0,
+    )
     assert np.isclose(r.log_bayes_factor, expected, atol=1e-9)
 
 
@@ -50,8 +63,15 @@ def test_support_mismatch_collapses_ess():
     logL_base = np.zeros(n)
     logL_ext = np.zeros(n)
     logL_ext[0] = 25.0  # a single sample dominates the extended likelihood
-    r = extend_evidence(base_weights, logL_base, logL_ext, np.zeros(n),
-                        base_log_evidence=0.0, n_bootstrap=50, seed=0)
+    r = extend_evidence(
+        base_weights,
+        logL_base,
+        logL_ext,
+        np.zeros(n),
+        base_log_evidence=0.0,
+        n_bootstrap=50,
+        seed=0,
+    )
     assert r.effective_sample_size < 5
     assert r.max_weight > 0.9
     assert not r.reliable
@@ -64,8 +84,15 @@ def test_prior_correction_enters_the_ratio():
     logL_base = np.zeros(n)
     logL_ext = np.zeros(n)
     corr = np.full(n, -0.7)  # pi/q = e^-0.7 everywhere
-    r = extend_evidence(base_weights, logL_base, logL_ext, corr,
-                        base_log_evidence=0.0, n_bootstrap=50, seed=0)
+    r = extend_evidence(
+        base_weights,
+        logL_base,
+        logL_ext,
+        corr,
+        base_log_evidence=0.0,
+        n_bootstrap=50,
+        seed=0,
+    )
     assert np.isclose(r.log_bayes_factor, -0.7, atol=1e-6)
 
 
@@ -76,8 +103,15 @@ def test_rejected_samples_carry_zero_weight():
     logL_base = np.zeros(n)
     logL_ext = np.zeros(n)
     logL_ext[::2] = -np.inf  # half the augmented points are unphysical
-    r = extend_evidence(base_weights, logL_base, logL_ext, np.zeros(n),
-                        base_log_evidence=0.0, n_bootstrap=50, seed=0)
+    r = extend_evidence(
+        base_weights,
+        logL_base,
+        logL_ext,
+        np.zeros(n),
+        base_log_evidence=0.0,
+        n_bootstrap=50,
+        seed=0,
+    )
     # Z_ext/Z_base = (n/2 surviving) / n = 1/2 -> ln B = -log 2.
     assert np.isclose(r.log_bayes_factor, -np.log(2), atol=1e-6)
 
@@ -90,9 +124,16 @@ def test_bayes_factor_err_excludes_base_evidence_err():
     logL_base = rng.normal(0, 1, n)
     logL_ext = logL_base + rng.normal(-0.2, 0.3, n)
     base_err = 0.25
-    r = extend_evidence(base_weights, logL_base, logL_ext, np.zeros(n),
-                        base_log_evidence=-100.0, base_log_evidence_err=base_err,
-                        n_bootstrap=200, seed=0)
+    r = extend_evidence(
+        base_weights,
+        logL_base,
+        logL_ext,
+        np.zeros(n),
+        base_log_evidence=-100.0,
+        base_log_evidence_err=base_err,
+        n_bootstrap=200,
+        seed=0,
+    )
     # The Bayes-factor error must NOT include the base nested-logZ error.
     assert r.log_bayes_factor_err < np.hypot(r.log_bayes_factor_err, base_err) - 1e-6
     # The absolute logZ_ext error DOES combine it in quadrature.
@@ -126,7 +167,9 @@ def test_infer_arbitrary_base_wcdm_to_w0wacdm():
 def test_resolve_limits_explicit_values_and_order():
     """Explicit --lcdm-value maps positionally to the new parameters."""
     assert resolve_base_limits(["w", "wa"], values=[-1.0, 0.0]) == {
-        "w": -1.0, "wa": 0.0}
+        "w": -1.0,
+        "wa": 0.0,
+    }
     assert resolve_base_limits(["Alens"]) == {"Alens": 1.0}
 
 
@@ -145,7 +188,14 @@ def test_consistency_check():
     n = 500
     base_weights = np.ones(n)
     logL_base = np.linspace(-5, 0, n)
-    r = extend_evidence(base_weights, logL_base, logL_base + 0.2, np.zeros(n),
-                        base_log_evidence=0.0, stored_logL=logL_base + 0.003,
-                        n_bootstrap=20, seed=0)
+    r = extend_evidence(
+        base_weights,
+        logL_base,
+        logL_base + 0.2,
+        np.zeros(n),
+        base_log_evidence=0.0,
+        stored_logL=logL_base + 0.003,
+        n_bootstrap=20,
+        seed=0,
+    )
     assert np.isclose(r.base_logL_consistency, 0.003, atol=1e-9)

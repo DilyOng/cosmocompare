@@ -50,6 +50,7 @@ LCDM_CENTRE = {"w": -1.0, "wa": 0.0}
 # Region cuts (hard, physically-motivated indicators)
 # =============================================================================
 
+
 def physicality_cut(params=("w", "wa")):
     r"""Non-phantom-at-early-times cut :math:`w_0 + w_a < 0`.
 
@@ -114,9 +115,8 @@ def no_phantom(params=("w", "wa")):
 # Shaped densities, normalised over the base box
 # =============================================================================
 
-def box_normalised_logdensity(
-    log_shape, params, base_bounds, n_mc=1_000_000, rng=None
-):
+
+def box_normalised_logdensity(log_shape, params, base_bounds, n_mc=1_000_000, rng=None):
     r"""Wrap an unnormalised log shape into a box-normalised log prior callable.
 
     Given an unnormalised non-negative shape :math:`g(\theta)` on the base box,
@@ -160,12 +160,8 @@ def box_normalised_logdensity(
     log_mean = logsumexp(log_g_box) - np.log(log_g_box.size)
 
     def log_prior_new(samples):
-        values = np.column_stack(
-            [np.asarray(samples[name], dtype=float) for name in p]
-        )
-        in_box = np.all(
-            (values >= bounds[:, 0]) & (values <= bounds[:, 1]), axis=1
-        )
+        values = np.column_stack([np.asarray(samples[name], dtype=float) for name in p])
+        in_box = np.all((values >= bounds[:, 0]) & (values <= bounds[:, 1]), axis=1)
         log_g = np.asarray(log_shape(values), dtype=float)
         return np.where(in_box, log_g - log_mean, -np.inf)
 
@@ -331,6 +327,7 @@ def quintessence_prior(
 # The flagship output: a sensitivity panel, not a single number
 # =============================================================================
 
+
 def _pareto_k(posterior):
     """Return the PSIS Pareto-k-hat of a reweighted posterior's weights.
 
@@ -482,8 +479,14 @@ def sensitivity_panel(
     def region_row(name, inside, k):
         cell_seed = None if seed is None else seed + k
         evidence, posterior = reweight_region(
-            extended, p, inside, bounds,
-            n_mc=n_mc, nsamples=nsamples, n_bootstrap=n_bootstrap, seed=cell_seed,
+            extended,
+            p,
+            inside,
+            bounds,
+            n_mc=n_mc,
+            nsamples=nsamples,
+            n_bootstrap=n_bootstrap,
+            seed=cell_seed,
         )
         rows.append(
             _panel_row(name, evidence, posterior, base_logZ, base_logZ_err, ess_warn)
@@ -492,8 +495,11 @@ def sensitivity_panel(
     def density_row(name, log_prior_new, k):
         cell_seed = None if seed is None else seed + k
         evidence, posterior = reweight_density(
-            extended, log_prior_new,
-            nsamples=nsamples, n_bootstrap=n_bootstrap, seed=cell_seed,
+            extended,
+            log_prior_new,
+            nsamples=nsamples,
+            n_bootstrap=n_bootstrap,
+            seed=cell_seed,
         )
         rows.append(
             _panel_row(name, evidence, posterior, base_logZ, base_logZ_err, ess_warn)

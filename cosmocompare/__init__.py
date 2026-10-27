@@ -27,7 +27,6 @@ from cosmocompare.config import (
     output_root,
     resolve_chain_stem,
 )
-from cosmocompare.models_registry import REGISTRY, ModelSpec, model_names
 from cosmocompare.dark_energy import (
     LCDM_CENTRE,
     box_normalised_logdensity,
@@ -55,6 +54,7 @@ from cosmocompare.extend import (
 )
 from cosmocompare.grid import all_jobs, index_of_job, job_by_index
 from cosmocompare.models import ModelFactory, TargetModel
+from cosmocompare.models_registry import REGISTRY, ModelSpec, model_names
 from cosmocompare.parameters import Parameter
 from cosmocompare.powerscale import power_scale_sweep, power_scaled_logdensity
 from cosmocompare.prior import (

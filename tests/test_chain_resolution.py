@@ -28,9 +28,7 @@ def test_primary_preferred_when_in_both(tmp_path):
     fallback = tmp_path / "grid"
     _make_run(primary, "lcdm", "sn.pantheon")
     _make_run(fallback, "lcdm", "sn.pantheon")
-    stem = resolve_chain_stem(
-        "lcdm", "sn.pantheon", primary=primary, fallback=fallback
-    )
+    stem = resolve_chain_stem("lcdm", "sn.pantheon", primary=primary, fallback=fallback)
     assert "new_grid" in stem.as_posix()
 
 

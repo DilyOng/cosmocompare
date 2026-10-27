@@ -48,18 +48,23 @@ from cosmocompare.psis import psis
 #: base (the "limit" recovering the nested sub-model). Covers every extension in
 #: the grid; pass explicit values to override or for a parameter not listed.
 BASE_LIMITS = {
-    "w": -1.0, "w0": -1.0, "wa": 0.0,
-    "omk": 0.0, "omegak": 0.0,
-    "Alens": 1.0, "nrun": 0.0, "r": 0.0,
+    "w": -1.0,
+    "w0": -1.0,
+    "wa": 0.0,
+    "omk": 0.0,
+    "omegak": 0.0,
+    "Alens": 1.0,
+    "nrun": 0.0,
+    "r": 0.0,
 }
 
 
 def infer_new_parameters(sampled_params, base_columns, requested=None):
-    """Return the extended model's new parameter(s).
+    r"""Return the extended model's new parameter(s).
 
     These are the parameters the extended model samples that the base chain does
     not, so the method is universal in the base/extended pair rather than tied to
-    :math:`\\Lambda\\mathrm{CDM} \\to w\\mathrm{CDM}`. Order follows
+    :math:`\Lambda\mathrm{CDM} \to w\mathrm{CDM}`. Order follows
     ``sampled_params``. A multi-parameter extension (for example ``w0waCDM``, which
     adds ``w`` and ``wa``) returns a list of length greater than one.
 
@@ -283,9 +288,7 @@ def extend_evidence(
     else:
         consistency = float("nan")
 
-    reliable = bool(
-        np.isfinite(khat) and khat < 0.7 and ess >= ess_floor
-    )
+    reliable = bool(np.isfinite(khat) and khat < 0.7 and ess >= ess_floor)
 
     return ExtendResult(
         log_bayes_factor=evidence.log_ratio,
@@ -379,11 +382,15 @@ def run_extension(
     # sample, averaged over the n_draws proposal draws of the new parameter.
     terms = []
     for draw in range(n_draws):
-        aug = (augmented if draw == 0
-               else target_model.augment_samples(base_samples, rng=rng))
+        aug = (
+            augmented
+            if draw == 0
+            else target_model.augment_samples(base_samples, rng=rng)
+        )
         logL_ext_m = np.asarray(
-            calculator.log_likelihood(aug, use_parallel=use_parallel,
-                                      n_cores=n_cores), dtype=float)
+            calculator.log_likelihood(aug, use_parallel=use_parallel, n_cores=n_cores),
+            dtype=float,
+        )
         corr_m = np.asarray(target_model.log_prior_correction(aug), dtype=float)
         terms.append(logL_ext_m + corr_m)
     log_num = logsumexp(np.vstack(terms), axis=0) - np.log(n_draws)

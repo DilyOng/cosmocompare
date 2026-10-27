@@ -22,9 +22,7 @@ def _peaked_target(centre=(-1.0, 0.0), sigma=0.3):
 
 def test_alpha_zero_is_flat():
     """At alpha=0 the power-scaled prior is the (flat) base: ratio ~ 0 everywhere."""
-    prior = power_scaled_logdensity(
-        BOUNDS, _peaked_target(), alpha=0.0, n_mc=100_000
-    )
+    prior = power_scaled_logdensity(BOUNDS, _peaked_target(), alpha=0.0, n_mc=100_000)
     samples = {"w": np.array([-1.0, -2.5, 0.5]), "wa": np.array([0.0, 1.0, -1.0])}
     lr = prior(samples)
     assert np.allclose(lr, 0.0, atol=1e-6)
@@ -37,7 +35,10 @@ def test_higher_alpha_concentrates_at_target_peak():
     vals_peak, vals_far = [], []
     for alpha in (0.25, 0.5, 1.0):
         prior = power_scaled_logdensity(
-            BOUNDS, _peaked_target(), alpha=alpha, n_mc=200_000,
+            BOUNDS,
+            _peaked_target(),
+            alpha=alpha,
+            n_mc=200_000,
             rng=np.random.default_rng(0),
         )
         vals_peak.append(float(prior(peak)[0]))
@@ -73,8 +74,14 @@ def test_power_scale_sweep_on_real_chains():
     ext = read_chains(_EXT)
     base = read_chains(_BASE)
     rows = power_scale_sweep(
-        ext, base, BOUNDS, _peaked_target(), alphas=(0.0, 0.5, 1.0),
-        n_bootstrap=50, seed=0, n_mc=100_000,
+        ext,
+        base,
+        BOUNDS,
+        _peaked_target(),
+        alphas=(0.0, 0.5, 1.0),
+        n_bootstrap=50,
+        seed=0,
+        n_mc=100_000,
     )
     assert len(rows) == 3
     assert all("log_bayes_factor" in r and "alpha" in r for r in rows)

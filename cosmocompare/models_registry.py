@@ -96,8 +96,7 @@ REGISTRY = {
         "wlcdm",
         {"w": ParamSpec("w", -3.0, -0.333, -1.0, "interior")},
         cuts=[
-            Cut("non_phantom", "theory", ("w",),
-                lambda a: np.asarray(a)[:, 0] >= -1.0),
+            Cut("non_phantom", "theory", ("w",), lambda a: np.asarray(a)[:, 0] >= -1.0),
         ],
     ),
     "klcdm": ModelSpec(
@@ -110,11 +109,19 @@ REGISTRY = {
             "wa": ParamSpec("wa", -3.0, 2.0, 0.0, "interior"),
         },
         cuts=[
-            Cut("physicality_cut", "viability", ("w", "wa"),
-                lambda a: np.asarray(a)[:, 0] + np.asarray(a)[:, 1] < 0.0),
-            Cut("no_phantom", "theory", ("w", "wa"),
+            Cut(
+                "physicality_cut",
+                "viability",
+                ("w", "wa"),
+                lambda a: np.asarray(a)[:, 0] + np.asarray(a)[:, 1] < 0.0,
+            ),
+            Cut(
+                "no_phantom",
+                "theory",
+                ("w", "wa"),
                 lambda a: (np.asarray(a)[:, 0] >= -1.0)
-                & (np.asarray(a)[:, 0] + np.asarray(a)[:, 1] >= -1.0)),
+                & (np.asarray(a)[:, 0] + np.asarray(a)[:, 1] >= -1.0),
+            ),
         ],
     ),
     "Alcdm": ModelSpec(

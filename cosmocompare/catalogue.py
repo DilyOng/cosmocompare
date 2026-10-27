@@ -281,6 +281,7 @@ class Catalogue:
 # Flagging: turn the table into "scientifically interesting cases"
 # =============================================================================
 
+
 def flag_sign_flips(summary):
     """Return (model, dataset) groups whose verdict changes sign across priors.
 

@@ -24,6 +24,7 @@ BOUNDS = [(-3.0, 1.0), (-3.0, 2.0)]  # (w0, wa) DESI-style box
 
 # --- region cuts -----------------------------------------------------------
 
+
 def test_physicality_cut_keeps_sum_negative():
     """w0+wa<0 is kept, >=0 is rejected."""
     _, inside = physicality_cut()
@@ -47,11 +48,15 @@ def test_no_phantom_requires_both_endpoints():
 
 # --- box-normalised shaped densities ---------------------------------------
 
+
 def test_box_normalisation_integrates_to_one():
     """A box-normalised density averages to ~1 over the base box (E_box[pi]=1)."""
     # Flat shape -> normalised density is exactly uniform, mean exp(logpi)=1.
     log_prior = box_normalised_logdensity(
-        lambda a: np.zeros(len(a)), ("w", "wa"), BOUNDS, n_mc=200_000,
+        lambda a: np.zeros(len(a)),
+        ("w", "wa"),
+        BOUNDS,
+        n_mc=200_000,
         rng=np.random.default_rng(0),
     )
     rng = np.random.default_rng(1)
@@ -65,12 +70,12 @@ def test_gaussian_shrink_peaks_at_lcdm_and_vanishes_outside_box():
     """The shrink prior is densest at LCDM and -inf outside the base box."""
     log_prior = gaussian_shrink(BOUNDS, sigma=0.3, n_mc=100_000)
     samples = {
-        "w": np.array([-1.0, -2.5, 2.0]),   # LCDM, far-but-in-box, outside box
+        "w": np.array([-1.0, -2.5, 2.0]),  # LCDM, far-but-in-box, outside box
         "wa": np.array([0.0, 1.5, 0.0]),
     }
     lp = log_prior(samples)
-    assert lp[0] > lp[1]            # denser at LCDM than in the tail
-    assert np.isneginf(lp[2])       # w=2 is outside [-3, 1]
+    assert lp[0] > lp[1]  # denser at LCDM than in the tail
+    assert np.isneginf(lp[2])  # w=2 is outside [-3, 1]
 
 
 def test_gaussian_shrink_rejects_nonpositive_sigma():

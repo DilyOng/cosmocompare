@@ -111,9 +111,7 @@ def available_datasets(model, method="ns", primary=None, fallback=None):
     return sorted(datasets)
 
 
-def resolve_chain_stem(
-    model, dataset, method="ns", primary=None, fallback=None
-):
+def resolve_chain_stem(model, dataset, method="ns", primary=None, fallback=None):
     """Resolve a (model, dataset) to a chain stem, trying new_grid then grid.
 
     The primary root (``new_grid`` by default) is searched first; if no files are

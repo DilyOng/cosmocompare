@@ -88,10 +88,17 @@ def test_load_posterior_reconstructs_weights(tmp_path):
 def test_flag_sign_flips(tmp_path):
     """A (model, dataset) with both signs among reliable cells is flagged."""
     cat = Catalogue(tmp_path)
-    cat.save(_cell(prior_method="baseline", ln_bayes_factor=-0.5, reliable=True,
-                   dlogw=None))
-    cat.save(_cell(prior_method="physicality_cut", ln_bayes_factor=+0.8,
-                   reliable=True, dlogw=np.zeros(2)))
+    cat.save(
+        _cell(prior_method="baseline", ln_bayes_factor=-0.5, reliable=True, dlogw=None)
+    )
+    cat.save(
+        _cell(
+            prior_method="physicality_cut",
+            ln_bayes_factor=+0.8,
+            reliable=True,
+            dlogw=np.zeros(2),
+        )
+    )
     flagged = flag_sign_flips(cat.load_summary())
     assert len(flagged) == 2
 
@@ -113,10 +120,12 @@ def test_shards_merge_into_summary(tmp_path):
 def test_flag_ambiguous_and_unreliable(tmp_path):
     """Ambiguous (|lnB|<1) and unreliable (reliable False) filters work."""
     cat = Catalogue(tmp_path)
-    cat.save(_cell(prior_method="a", ln_bayes_factor=0.3, reliable=True,
-                   dlogw=np.zeros(2)))
-    cat.save(_cell(prior_method="b", ln_bayes_factor=5.0, reliable=False,
-                   dlogw=np.zeros(2)))
+    cat.save(
+        _cell(prior_method="a", ln_bayes_factor=0.3, reliable=True, dlogw=np.zeros(2))
+    )
+    cat.save(
+        _cell(prior_method="b", ln_bayes_factor=5.0, reliable=False, dlogw=np.zeros(2))
+    )
     df = cat.load_summary()
     assert len(flag_ambiguous(df)) == 1
     assert len(flag_unreliable(df)) == 1
