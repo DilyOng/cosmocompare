@@ -35,6 +35,8 @@ from anesthetic import read_chains
 
 from cosmocompare.catalogue import Catalogue, Cell
 from cosmocompare.config import (
+    CHAINS_PRIMARY_ENV,
+    DEFAULT_PRIMARY_ROOT,
     available_datasets,
     cell_massive_neutrinos,
     resolve_chain_stem,
@@ -55,6 +57,25 @@ _SKIP_DATASET_MARKERS = ("unfinished_", "test_", "_lens_only_False")
 def _skip_dataset(dataset):
     """Return True for provisional/abandoned dataset directories."""
     return any(m in dataset for m in _SKIP_DATASET_MARKERS)
+
+
+def _effective_primary(primary):
+    """Resolve the primary (new_grid) root the way config.py does."""
+    return primary or os.environ.get(CHAINS_PRIMARY_ENV, DEFAULT_PRIMARY_ROOT)
+
+
+def _model_fallback(model, primary, fallback):
+    """Fallback root for a model: neutrino models are new_grid-only.
+
+    The ``grid`` root holds superseded/wrong neutrino chains (``grid/mlcdm`` is an
+    ``nnu`` duplicate, ``grid/Nlcdm`` is the pre-fix run), so allowing the fallback
+    would silently read the wrong model. Pinning the fallback to the primary root
+    keeps neutrino cells to ``new_grid`` only; other models keep the normal
+    new_grid-then-grid resolution.
+    """
+    if model in REQUIRED_NMN:
+        return _effective_primary(primary)
+    return fallback
 
 
 def read_logf(stem):
@@ -107,13 +128,12 @@ def enumerate_pairs(models, base_model, primary=None, fallback=None):
     pairs = []
     base_ds = set(available_datasets(base_model, primary=primary, fallback=fallback))
     for model in models:
-        for dataset in available_datasets(model, primary=primary, fallback=fallback):
+        mfb = _model_fallback(model, primary, fallback)
+        for dataset in available_datasets(model, primary=primary, fallback=mfb):
             if dataset not in base_ds or _skip_dataset(dataset):
                 continue
             if model in REQUIRED_NMN:
-                stem = resolve_chain_stem(
-                    model, dataset, primary=primary, fallback=fallback
-                )
+                stem = resolve_chain_stem(model, dataset, primary=primary, fallback=mfb)
                 if cell_massive_neutrinos(stem) != REQUIRED_NMN[model]:
                     continue
             pairs.append((model, dataset))
@@ -187,8 +207,9 @@ def _cell(ctx, method, params, m, log_r, flip=None):
 def run_pair(model, dataset, args, catalogue):
     """Run baseline + homothetic sweep + cuts for one (model, dataset) pair."""
     spec = REGISTRY[model]
+    ext_fallback = _model_fallback(model, args.primary, args.fallback)
     ext_stem = resolve_chain_stem(
-        model, dataset, primary=args.primary, fallback=args.fallback
+        model, dataset, primary=args.primary, fallback=ext_fallback
     )
     base_stem = resolve_chain_stem(
         args.base_model, dataset, primary=args.primary, fallback=args.fallback
