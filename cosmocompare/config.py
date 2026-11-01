@@ -156,6 +156,39 @@ def resolve_chain_stem(model, dataset, method="ns", primary=None, fallback=None)
     )
 
 
+def cell_input_yaml(stem):
+    """Return the path to a chain cell's Cobaya ``input.yaml`` for a stem.
+
+    The stem is ``<root>/<method>/<model>/<dataset>/<dataset>_polychord_raw/<dataset>``
+    so the input file sits two directories up, named ``<dataset>.input.yaml``.
+    """
+    stem = Path(stem)
+    return stem.parent.parent / f"{stem.name}.input.yaml"
+
+
+def cell_massive_neutrinos(stem):
+    """Return ``num_massive_neutrinos`` from a cell's ``input.yaml``, or None.
+
+    Used to keep pre-correction neutrino chains out of the sweep: a mid-2025 fix
+    changed this CAMB setting, so cells whose value disagrees with the intended
+    convention are a physically different model and must be excluded.
+
+    Returns
+    -------
+    int or None
+        The integer setting, or None if the file is missing or unparseable.
+    """
+    path = cell_input_yaml(stem)
+    if not path.exists():
+        return None
+    try:
+        with open(path, "r") as stream:
+            cfg = yaml.safe_load(stream)
+        return int(cfg["theory"]["camb"]["extra_args"]["num_massive_neutrinos"])
+    except (KeyError, TypeError, ValueError, OSError):
+        return None
+
+
 def output_root():
     """Return the directory results are written to.
 

@@ -14,7 +14,8 @@ After the array finishes, merge once with ``--merge``. Without ``--task-index`` 
 runs all pairs sequentially (for a small validation subset on a login node).
 
 Models and their priors come from :mod:`cosmocompare.models_registry` (neutrino
-models are held out there). Nothing is submitted to a scheduler by this script.
+models included, with stale pre-fix cells filtered by ``num_massive_neutrinos``).
+Nothing is submitted to a scheduler by this script.
 
 Examples::
 
@@ -33,15 +34,27 @@ import numpy as np
 from anesthetic import read_chains
 
 from cosmocompare.catalogue import Catalogue, Cell
-from cosmocompare.config import available_datasets, resolve_chain_stem
+from cosmocompare.config import (
+    available_datasets,
+    cell_massive_neutrinos,
+    resolve_chain_stem,
+)
 from cosmocompare.evidence import importance_evidence, nested_evidence
-from cosmocompare.models_registry import REGISTRY, model_names
+from cosmocompare.models_registry import REGISTRY, REQUIRED_NMN, model_names
 from cosmocompare.prior import prior_log_ratio, region_volume_fraction
 from cosmocompare.psis import psis
 from cosmocompare.sweep import flip_fraction, shrink_uniform
 
 FRACTIONS = [round(1.0 - 0.05 * i, 2) for i in range(19)]  # 1.00 -> 0.10
 ESS_FLOOR = 1000.0
+
+#: Dataset-name markers for cells that are not finished production runs.
+_SKIP_DATASET_MARKERS = ("unfinished_", "test_", "_lens_only_False")
+
+
+def _skip_dataset(dataset):
+    """Return True for provisional/abandoned dataset directories."""
+    return any(m in dataset for m in _SKIP_DATASET_MARKERS)
 
 
 def read_logf(stem):
@@ -73,10 +86,10 @@ def strip_bom_columns(samples):
     direct-nested baseline, which never indexes it, still succeeds. This renames
     the affected columns in place so the parameter is addressable again.
     """
+
     def fix(label):
         if isinstance(label, tuple):
-            return tuple(x.lstrip("﻿") if isinstance(x, str) else x
-                         for x in label)
+            return tuple(x.lstrip("﻿") if isinstance(x, str) else x for x in label)
         return label.lstrip("﻿") if isinstance(label, str) else label
 
     samples.columns = samples.columns.map(fix)
@@ -84,13 +97,26 @@ def strip_bom_columns(samples):
 
 
 def enumerate_pairs(models, base_model, primary=None, fallback=None):
-    """Return the sorted list of (model, dataset) pairs with both chains present."""
+    """Return the sorted list of (model, dataset) pairs with both chains present.
+
+    Provisional dataset directories (``unfinished_``/``test_``/``_lens_only_False``)
+    are skipped. For a neutrino model in :data:`REQUIRED_NMN`, a cell is kept only
+    when its ``input.yaml`` ``num_massive_neutrinos`` matches the post-fix
+    convention, so pre-correction (stale) chains never enter the sweep.
+    """
     pairs = []
     base_ds = set(available_datasets(base_model, primary=primary, fallback=fallback))
     for model in models:
         for dataset in available_datasets(model, primary=primary, fallback=fallback):
-            if dataset in base_ds:
-                pairs.append((model, dataset))
+            if dataset not in base_ds or _skip_dataset(dataset):
+                continue
+            if model in REQUIRED_NMN:
+                stem = resolve_chain_stem(
+                    model, dataset, primary=primary, fallback=fallback
+                )
+                if cell_massive_neutrinos(stem) != REQUIRED_NMN[model]:
+                    continue
+            pairs.append((model, dataset))
     return sorted(pairs)
 
 
@@ -98,9 +124,13 @@ def _evaluate(ctx, log_r, logf, frac_sigma=0.0):
     """Reweight by a log prior ratio; return the metrics for a cell."""
     args = ctx["args"]
     ev = importance_evidence(
-        ctx["ext_logL"], ctx["ext_logL"], base_weights=ctx["ext_weights"],
-        log_prior_correction=log_r, base_log_evidence=ctx["ext_logZ"],
-        base_log_evidence_err=ctx["ext_logZ_err"], n_bootstrap=args.n_bootstrap,
+        ctx["ext_logL"],
+        ctx["ext_logL"],
+        base_weights=ctx["ext_weights"],
+        log_prior_correction=log_r,
+        base_log_evidence=ctx["ext_logZ"],
+        base_log_evidence_err=ctx["ext_logZ_err"],
+        n_bootstrap=args.n_bootstrap,
         seed=args.seed,
     )
     ln_evidence_err = float(np.hypot(ev.log_evidence_err or 0.0, frac_sigma))
@@ -108,10 +138,12 @@ def _evaluate(ctx, log_r, logf, frac_sigma=0.0):
     with np.errstate(divide="ignore"):
         khat = psis(np.log(ctx["ext_weights"]) + log_r).pareto_k
     return {
-        "ln_evidence": ev.log_evidence, "ln_evidence_err": ln_evidence_err,
+        "ln_evidence": ev.log_evidence,
+        "ln_evidence_err": ln_evidence_err,
         "ln_bayes_factor": ln_b,
         "ln_bayes_factor_err": float(np.hypot(ln_evidence_err, ctx["base_logZ_err"])),
-        "ess": ev.effective_sample_size, "pareto_k": khat,
+        "ess": ev.effective_sample_size,
+        "pareto_k": khat,
         "degenerate_fraction": ev.bootstrap_degenerate_fraction,
     }
 
@@ -132,13 +164,22 @@ def _reliable(m):
 def _cell(ctx, method, params, m, log_r, flip=None):
     """Build a catalogue Cell from metrics and a per-sample log ratio."""
     return Cell(
-        model=ctx["model"], base_model=ctx["base_model"], dataset=ctx["dataset"],
-        prior_method=method, prior_params=params, estimator="is_ratio",
-        ln_evidence=m["ln_evidence"], ln_evidence_err=m["ln_evidence_err"],
+        model=ctx["model"],
+        base_model=ctx["base_model"],
+        dataset=ctx["dataset"],
+        prior_method=method,
+        prior_params=params,
+        estimator="is_ratio",
+        ln_evidence=m["ln_evidence"],
+        ln_evidence_err=m["ln_evidence_err"],
         ln_bayes_factor=m["ln_bayes_factor"],
-        ln_bayes_factor_err=m["ln_bayes_factor_err"], ess=m["ess"],
-        pareto_k=m["pareto_k"], degenerate_fraction=m["degenerate_fraction"],
-        flip_fraction=flip, reliable=_reliable(m), chain_source=ctx["chain_source"],
+        ln_bayes_factor_err=m["ln_bayes_factor_err"],
+        ess=m["ess"],
+        pareto_k=m["pareto_k"],
+        degenerate_fraction=m["degenerate_fraction"],
+        flip_fraction=flip,
+        reliable=_reliable(m),
+        chain_source=ctx["chain_source"],
         dlogw=log_r,
     )
 
@@ -146,10 +187,12 @@ def _cell(ctx, method, params, m, log_r, flip=None):
 def run_pair(model, dataset, args, catalogue):
     """Run baseline + homothetic sweep + cuts for one (model, dataset) pair."""
     spec = REGISTRY[model]
-    ext_stem = resolve_chain_stem(model, dataset, primary=args.primary,
-                                  fallback=args.fallback)
-    base_stem = resolve_chain_stem(args.base_model, dataset, primary=args.primary,
-                                   fallback=args.fallback)
+    ext_stem = resolve_chain_stem(
+        model, dataset, primary=args.primary, fallback=args.fallback
+    )
+    base_stem = resolve_chain_stem(
+        args.base_model, dataset, primary=args.primary, fallback=args.fallback
+    )
     source = "new_grid" if "new_grid" in str(ext_stem) else "grid"
     ext = strip_bom_columns(read_chains(str(ext_stem)))
     base = strip_bom_columns(read_chains(str(base_stem)))
@@ -158,23 +201,38 @@ def run_pair(model, dataset, args, catalogue):
     base_logZ, base_logZ_err = nested_evidence(base, args.nsamples)
     ext_logZ, ext_logZ_err = nested_evidence(ext, args.nsamples)
     ctx = {
-        "ext": ext, "model": model, "base_model": args.base_model,
-        "dataset": dataset, "chain_source": source,
+        "ext": ext,
+        "model": model,
+        "base_model": args.base_model,
+        "dataset": dataset,
+        "chain_source": source,
         "ext_logL": np.asarray(ext.logL, dtype=float),
         "ext_weights": np.asarray(ext.get_weights(), dtype=float),
-        "ext_logZ": ext_logZ, "ext_logZ_err": ext_logZ_err,
-        "base_logZ": base_logZ, "base_logZ_err": base_logZ_err, "args": args,
+        "ext_logZ": ext_logZ,
+        "ext_logZ_err": ext_logZ_err,
+        "base_logZ": base_logZ,
+        "base_logZ_err": base_logZ_err,
+        "args": args,
     }
 
     # Baseline (direct nested evidences).
-    catalogue.save(Cell(
-        model=model, base_model=args.base_model, dataset=dataset,
-        prior_method="baseline", prior_params={}, estimator="direct_ns",
-        ln_evidence=ext_logZ, ln_evidence_err=ext_logZ_err,
-        ln_bayes_factor=ext_logZ - base_logZ + logf,
-        ln_bayes_factor_err=float(np.hypot(ext_logZ_err, base_logZ_err)),
-        reliable=True, chain_source=source, dlogw=None,
-    ))
+    catalogue.save(
+        Cell(
+            model=model,
+            base_model=args.base_model,
+            dataset=dataset,
+            prior_method="baseline",
+            prior_params={},
+            estimator="direct_ns",
+            ln_evidence=ext_logZ,
+            ln_evidence_err=ext_logZ_err,
+            ln_bayes_factor=ext_logZ - base_logZ + logf,
+            ln_bayes_factor_err=float(np.hypot(ext_logZ_err, base_logZ_err)),
+            reliable=True,
+            chain_source=source,
+            dlogw=None,
+        )
+    )
 
     # Homothetic contraction about each parameter's LCDM centre.
     sweep = []
@@ -188,8 +246,9 @@ def run_pair(model, dataset, args, catalogue):
         }
         log_r = prior_log_ratio(ext, changes)
         sweep.append((float(f), log_r, _evaluate(ctx, log_r, logf)))
-    records = [{"fraction": f, "log_bayes_factor": m["ln_bayes_factor"]}
-               for f, _, m in sweep]
+    records = [
+        {"fraction": f, "log_bayes_factor": m["ln_bayes_factor"]} for f, _, m in sweep
+    ]
     ff = flip_fraction(records)
     for f, log_r, m in sweep:
         catalogue.save(_cell(ctx, "homothetic", {"fraction": f}, m, log_r, flip=ff))
@@ -213,8 +272,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--models", nargs="+", default=model_names())
     parser.add_argument("--base-model", default="lcdm")
-    parser.add_argument("--datasets", nargs="+", default=None,
-                        help="restrict to these datasets (default: discover all)")
+    parser.add_argument(
+        "--datasets",
+        nargs="+",
+        default=None,
+        help="restrict to these datasets (default: discover all)",
+    )
     parser.add_argument("--primary", default=None)
     parser.add_argument("--fallback", default=None)
     parser.add_argument("--fractions", nargs="+", type=float, default=FRACTIONS)
@@ -224,11 +287,16 @@ def main():
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--no-logf", action="store_true")
     parser.add_argument("--outdir", default="cc_grid")
-    parser.add_argument("--task-index", type=int, default=None,
-                        help="run only pair K of the enumerated grid (array mode)")
+    parser.add_argument(
+        "--task-index",
+        type=int,
+        default=None,
+        help="run only pair K of the enumerated grid (array mode)",
+    )
     parser.add_argument("--list", action="store_true", help="print the grid and exit")
-    parser.add_argument("--merge", action="store_true",
-                        help="merge shards into summary.csv and exit")
+    parser.add_argument(
+        "--merge", action="store_true", help="merge shards into summary.csv and exit"
+    )
     args = parser.parse_args()
 
     cat_root = os.path.join(args.outdir, "catalogue")
@@ -250,8 +318,9 @@ def main():
 
     if args.task_index is not None:
         if not 0 <= args.task_index < len(pairs):
-            raise SystemExit(f"task-index {args.task_index} out of range "
-                             f"[0, {len(pairs) - 1}]")
+            raise SystemExit(
+                f"task-index {args.task_index} out of range " f"[0, {len(pairs) - 1}]"
+            )
         pairs = [pairs[args.task_index]]
 
     for model, dataset in pairs:
@@ -259,8 +328,10 @@ def main():
         catalogue = Catalogue(cat_root, shard=shard)
         try:
             source, lnb, ff = run_pair(model, dataset, args, catalogue)
-            print(f"[ok] {model:10s} {dataset:55s} [{source}] "
-                  f"baseline lnB {lnb:+.3f}  flip {ff}")
+            print(
+                f"[ok] {model:10s} {dataset:55s} [{source}] "
+                f"baseline lnB {lnb:+.3f}  flip {ff}"
+            )
         except Exception as exc:  # keep the array task alive, record the failure
             print(f"[FAIL] {model} {dataset}: {type(exc).__name__}: {exc}")
 

@@ -18,19 +18,33 @@ are encoded:
   boundary-nested contraction, not compared like-for-like with interior scans. It
   stays a linear-width scan: reweighting a uniform chain onto a log-uniform prior
   is a different prior family, not a narrower one, and diverges at zero.
-- The neutrino models are **excluded**: ``mlcdm`` (``mnu`` in ``[0.06, 2.0]``)
-  does not even contain the true :math:`\Lambda\mathrm{CDM}` point
-  :math:`\sum m_\nu = 0`, and ``nlcdm``/``Nlcdm`` have an ambiguous/duplicated
-  ``mnu``/``nnu`` naming. They await the user confirming the correct runs.
+- The neutrino models are now **included**, with the correct runs confirmed by the
+  user (2026-11). Their actual priors do contain the nesting point: ``mlcdm`` varies
+  :math:`\sum m_\nu` over ``[0, 5]`` about the baseline value ``0.06``; ``nlcdm``
+  varies :math:`N_\mathrm{eff}` over ``[0.05, 10]`` about ``3.046``; ``Nlcdm`` varies
+  both. A mid-campaign fix (~Sep 2025) changed ``num_massive_neutrinos`` so that
+  mass-fixed models use one massive eigenstate and mass-varied models use three
+  degenerate ones; pre-fix cells are a physically different model and must be
+  excluded. :data:`REQUIRED_NMN` encodes the convention and the sweep driver drops
+  any cell whose ``input.yaml`` disagrees. Caveat: the baseline ``lcdm`` run uses one
+  massive eigenstate at 0.06 eV, so ``mlcdm``/``Nlcdm`` (three degenerate) do not
+  reduce exactly to it at the nesting point; the sweep *shape* (prior sensitivity) is
+  unaffected, but the absolute :math:`\ln B` carries this small baseline mismatch.
 """
 
 from dataclasses import dataclass, field
 
 import numpy as np
 
-#: Neutrino models held out until the user confirms the correct runs and that the
-#: prior contains the LCDM nesting point.
-EXCLUDED_MODELS = ("mlcdm", "nlcdm", "Nlcdm")
+#: Formerly held-out neutrino models, now included (see module docstring). Kept as a
+#: name for backward compatibility; empty now that the correct runs are confirmed.
+EXCLUDED_MODELS = ()
+
+#: Required ``num_massive_neutrinos`` per neutrino model, encoding the post-fix
+#: convention (mass-fixed -> one massive eigenstate; mass-varied -> three degenerate).
+#: The sweep driver reads each cell's ``input.yaml`` and skips cells that disagree,
+#: so pre-fix (stale) chains never enter the sweep.
+REQUIRED_NMN = {"nlcdm": 1, "mlcdm": 3, "Nlcdm": 3}
 
 
 @dataclass
@@ -90,7 +104,7 @@ class ModelSpec:
     cuts: list = field(default_factory=list)
 
 
-#: The validated registry of models to sweep (neutrinos excluded, see module doc).
+#: The validated registry of models to sweep (neutrinos included, see module doc).
 REGISTRY = {
     "wlcdm": ModelSpec(
         "wlcdm",
@@ -132,6 +146,22 @@ REGISTRY = {
     ),
     "rlcdm": ModelSpec(
         "rlcdm", {"r": ParamSpec("r", 0.0, 3.0, 0.0, "boundary")}, cuts=[]
+    ),
+    # Neutrino models (see module docstring). Centres are the baseline LCDM values:
+    # Sum m_nu = 0.06 eV and N_eff = 3.046. No theory/viability hard cuts apply.
+    "mlcdm": ModelSpec(
+        "mlcdm", {"mnu": ParamSpec("mnu", 0.0, 5.0, 0.06, "interior")}, cuts=[]
+    ),
+    "nlcdm": ModelSpec(
+        "nlcdm", {"nnu": ParamSpec("nnu", 0.05, 10.0, 3.046, "interior")}, cuts=[]
+    ),
+    "Nlcdm": ModelSpec(
+        "Nlcdm",
+        {
+            "mnu": ParamSpec("mnu", 0.0, 5.0, 0.06, "interior"),
+            "nnu": ParamSpec("nnu", 0.05, 10.0, 3.046, "interior"),
+        },
+        cuts=[],
     ),
 }
 
