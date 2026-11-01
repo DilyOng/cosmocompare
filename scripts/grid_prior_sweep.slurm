@@ -1,24 +1,26 @@
 #!/bin/bash
 #! Slurm array for the full-grid prior-sensitivity map (cosmocompare).
-#! One array task per (model, dataset) pair enumerated by grid_prior_sweep.py
-#! (662 pairs as of this writing: indices 0-661). Each task reweights the chains
-#! in place (no likelihood calls) and writes its own catalogue shard, so the array
-#! is parallel-safe; merge the shards once at the end.
+#! One array task per (model, dataset) pair enumerated by grid_prior_sweep.py.
+#! Each task reweights the chains in place (no likelihood calls) and writes its own
+#! catalogue shard, so the array is parallel-safe; merge the shards once at the end.
 #!
-#! dp465 (Seedcorn, "Mapping the Prior-Sensitivity ...") is on Peta4-Skylake,
-#! CSD3's legacy Skylake system, reached via login.hpc.cam.ac.uk (not login-cpu,
-#! which is the icelake system). The account/partition below follow the CSD3 house
-#! pattern (DIRAC-DP192-CPU -> DIRAC-DP465-CPU; partition skylake); VERIFY on a
-#! Peta4-Skylake login with `sacctmgr -n show assoc user=$USER | grep -i 465`
-#! before submitting, and adjust if the exact strings differ. A fallback with
-#! plenty of balance is --account=DIRAC-DP192-CPU --partition=icelake.
+#! This runs on DIRAC-DP192-CPU / icelake (login-cpu.hpc.cam.ac.uk), where the full
+#! 6-model grid (job cc_grid_38766236) was produced. DP465 is a *separate* cluster
+#! (Peta4-Skylake, via login.hpc.cam.ac.uk): its "skylake" partition is not valid
+#! from the icelake login, so it cannot be targeted here.
 #!
-#! Submit:  sbatch --array=0-661%64 grid_prior_sweep.slurm
-#! Merge:   python grid_prior_sweep.py --outdir $HOME/cc_grid --merge
+#! Restrict the models with the MODELS env var (space-separated); unset = all.
+#! The number of array tasks must equal the pair count printed by:
+#!   grid_prior_sweep.py [--models $MODELS] --list
+#!
+#! Full grid:  sbatch --array=0-661%64 grid_prior_sweep.slurm
+#! Neutrinos:  sbatch --array=0-142%64 --export=ALL,MODELS="mlcdm nlcdm Nlcdm" \
+#!                 grid_prior_sweep.slurm        # 143 post-fix cells
+#! Merge:      python grid_prior_sweep.py --outdir $HOME/cc_grid --merge
 
 #SBATCH --job-name=cc_grid
-#SBATCH --account=DIRAC-DP465-CPU
-#SBATCH --partition=skylake
+#SBATCH --account=DIRAC-DP192-CPU
+#SBATCH --partition=icelake
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
@@ -37,5 +39,6 @@ export MPLBACKEND=Agg
 
 python $HOME/cosmocompare_src/scripts/grid_prior_sweep.py \
     --outdir $HOME/cc_grid \
+    ${MODELS:+--models $MODELS} \
     --task-index ${SLURM_ARRAY_TASK_ID} \
     --nsamples 1000 --n-bootstrap 1000 --n-mc 1000000 --seed 0
