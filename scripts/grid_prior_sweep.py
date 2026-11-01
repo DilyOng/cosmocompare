@@ -204,6 +204,42 @@ def _cell(ctx, method, params, m, log_r, flip=None):
     )
 
 
+def _exact_flip(eval_lnB, sweep_records, tol=1.0e-3, max_iter=60):
+    """Locate the exact width where ln B crosses zero by bisecting the reweighting.
+
+    ``sweep_records`` is a list of ``(fraction, ln_bayes_factor)`` from the dense
+    sweep; the widest (largest-fraction) sign change is bracketed and then refined
+    by calling ``eval_lnB(fraction)`` (a fresh reweighting) until ``|ln B| < tol``.
+    This replaces the linear interpolation between two sampled points with the true
+    zero of the importance-sampling estimate. Returns the flip fraction, or None if
+    no finite sign change exists.
+    """
+    ordered = sorted(sweep_records, key=lambda r: -r[0])
+    bracket = None
+    for (fa, ba), (fb, bb) in zip(ordered, ordered[1:]):
+        if np.isfinite(ba) and ba == 0.0:
+            return float(fa)
+        if np.isfinite(ba) and np.isfinite(bb) and (ba > 0) != (bb > 0):
+            bracket = (fb, fa, bb, ba)  # lo_f, hi_f, lnB(lo), lnB(hi)
+            break
+    if bracket is None:
+        return None
+    lo, hi, _, fhi = bracket
+    mid = 0.5 * (lo + hi)
+    for _ in range(max_iter):
+        mid = 0.5 * (lo + hi)
+        bm = eval_lnB(mid)
+        if not np.isfinite(bm):
+            break
+        if abs(bm) < tol or (hi - lo) < 1.0e-5:
+            return float(mid)
+        if (bm > 0) == (fhi > 0):
+            hi, fhi = mid, bm
+        else:
+            lo = mid
+    return float(mid)
+
+
 def run_pair(model, dataset, args, catalogue):
     """Run baseline + homothetic sweep + cuts for one (model, dataset) pair."""
     spec = REGISTRY[model]
@@ -255,9 +291,9 @@ def run_pair(model, dataset, args, catalogue):
         )
     )
 
-    # Homothetic contraction about each parameter's LCDM centre.
-    sweep = []
-    for f in args.fractions:
+    # Homothetic contraction about each parameter's LCDM centre. One reweighting
+    # per width; eval_at(f) is reused for the root-found exact flip below.
+    def eval_at(f):
         changes = {
             p.column: {
                 "base": {"type": "uniform", "min": p.low, "max": p.high},
@@ -266,13 +302,29 @@ def run_pair(model, dataset, args, catalogue):
             for p in spec.params.values()
         }
         log_r = prior_log_ratio(ext, changes)
-        sweep.append((float(f), log_r, _evaluate(ctx, log_r, logf)))
+        return log_r, _evaluate(ctx, log_r, logf)
+
+    sweep = [(float(f),) + eval_at(f) for f in args.fractions]
     records = [
         {"fraction": f, "log_bayes_factor": m["ln_bayes_factor"]} for f, _, m in sweep
     ]
-    ff = flip_fraction(records)
+    # Exact flip: the true zero of the IS estimate, not the linear interpolant.
+    fstar = _exact_flip(
+        lambda f: eval_at(f)[1]["ln_bayes_factor"],
+        [(f, m["ln_bayes_factor"]) for f, _, m in sweep],
+    )
+    ff = fstar if fstar is not None else flip_fraction(records)
     for f, log_r, m in sweep:
         catalogue.save(_cell(ctx, "homothetic", {"fraction": f}, m, log_r, flip=ff))
+    # A dedicated cell holding the metrics exactly at the flip, so its reliability
+    # (ESS, Pareto k-hat) can be judged: a flip buried below the ESS floor is noise.
+    if fstar is not None:
+        log_r, m = eval_at(fstar)
+        catalogue.save(
+            _cell(
+                ctx, "flip_exact", {"fraction": round(fstar, 6)}, m, log_r, flip=fstar
+            )
+        )
 
     # Registered hard cuts (regions).
     for cut in spec.cuts:
@@ -301,7 +353,15 @@ def main():
     )
     parser.add_argument("--primary", default=None)
     parser.add_argument("--fallback", default=None)
-    parser.add_argument("--fractions", nargs="+", type=float, default=FRACTIONS)
+    parser.add_argument("--fractions", nargs="+", type=float, default=None)
+    parser.add_argument(
+        "--n-fractions",
+        type=int,
+        default=None,
+        help="build a dense linear grid of this many widths from 1.0 to "
+        "--fraction-min (overrides --fractions when set)",
+    )
+    parser.add_argument("--fraction-min", type=float, default=0.02)
     parser.add_argument("--nsamples", type=int, default=1000)
     parser.add_argument("--n-bootstrap", type=int, default=1000)
     parser.add_argument("--n-mc", type=int, default=1_000_000)
@@ -319,6 +379,14 @@ def main():
         "--merge", action="store_true", help="merge shards into summary.csv and exit"
     )
     args = parser.parse_args()
+
+    if args.n_fractions is not None:
+        args.fractions = [
+            round(float(x), 6)
+            for x in np.linspace(1.0, args.fraction_min, args.n_fractions)
+        ]
+    elif args.fractions is None:
+        args.fractions = FRACTIONS
 
     cat_root = os.path.join(args.outdir, "catalogue")
 
