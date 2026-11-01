@@ -37,8 +37,11 @@ source /home/dlo26/rds/hpc-work/venv/tension_venv/bin/activate
 export PYTHONPATH=$HOME/cosmocompare_src
 export MPLBACKEND=Agg
 
+#! OUTDIR defaults to the main catalogue; set it to a separate dir to avoid
+#! overwriting existing results. NFRAC sets a dense width grid when given.
 python $HOME/cosmocompare_src/scripts/grid_prior_sweep.py \
-    --outdir $HOME/cc_grid \
+    --outdir ${OUTDIR:-$HOME/cc_grid} \
     ${MODELS:+--models $MODELS} \
+    ${NFRAC:+--n-fractions $NFRAC} \
     --task-index ${SLURM_ARRAY_TASK_ID} \
     --nsamples 1000 --n-bootstrap 1000 --n-mc 1000000 --seed 0
