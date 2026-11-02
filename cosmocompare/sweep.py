@@ -233,10 +233,10 @@ def flip_fraction(records):
     -------
     float or None
         The ``fraction`` where ``log_bayes_factor`` reaches zero, by exact match
-        or linear interpolation of a sign change. None if no crossing is found
-        over the swept range (including a crossing hidden by a non-finite value).
-        When several crossings exist, the one at the largest fraction (widest
-        prior) is returned.
+        or linear interpolation of a sign change. Non-finite cells are dropped
+        before pairing, so a crossing straddling a collapsed width is still found.
+        None if no sign change exists among the finite cells. When several
+        crossings exist, the one at the largest fraction (widest prior) is returned.
     """
     # Drop non-finite cells (an infinite Bayes factor from a prior narrowed until
     # no sample survives) *before* pairing, not by skipping adjacent pairs: skipping

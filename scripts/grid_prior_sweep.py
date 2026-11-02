@@ -218,41 +218,51 @@ def _exact_flip(eval_lnB, sweep_records, tol=1.0e-3, max_iter=60):
     Returns the flip fraction, or None if no finite sign change exists.
 
     Caveat: the IS ln B(f) is not continuous in f (samples leave the contracted box
-    at discrete thresholds), so a bracketed sign change need not contain a true zero
-    and multi-crossings are not resolved; this returns the widest *sampled* sign
-    change refined to tolerance, which is why the ``flip_exact`` cell also carries
-    the ESS/Pareto-k at the located width so an unreliable crossing is visible.
-    Non-finite (fully collapsed) points are dropped before bracketing so a crossing
-    is not hidden by an intervening NaN.
+    at discrete thresholds), so a bracketed sign change need not contain a true zero.
+    This therefore returns a width only when it is a *genuine* zero crossing (``|ln B|``
+    small there); if the bracket collapses onto a discontinuity jump with no real root
+    it returns None rather than a spurious flip. Multi-crossings are not resolved (the
+    widest sampled sign change is taken). Non-finite (collapsed) points are dropped
+    before bracketing so a crossing is not hidden by an intervening NaN, and the
+    ``flip_exact`` cell carries the ESS/Pareto-k so an unreliable crossing is visible.
+    A full interval/bracket report (rather than a point) is left as future work.
     """
     ordered = sorted(
         (r for r in sweep_records if np.isfinite(r[1])), key=lambda r: -r[0]
     )
+    # A sampled exact zero is the crossing (covers the single-finite-point case too).
+    for f, v in ordered:
+        if v == 0.0:
+            return float(f)
     bracket = None
     for (fa, ba), (fb, bb) in zip(ordered, ordered[1:]):
-        if ba == 0.0:
-            return float(fa)
-        if bb == 0.0:
-            return float(fb)
         if (ba > 0) != (bb > 0):
             bracket = (fb, fa, bb, ba)  # lo_f, hi_f, lnB(lo), lnB(hi)
             break
     if bracket is None:
         return None
     lo, hi, _, fhi = bracket
+    mid = 0.5 * (lo + hi)
     for _ in range(max_iter):
         mid = 0.5 * (lo + hi)
         bm = eval_lnB(mid)
         if not np.isfinite(bm):  # starved midpoint: treat as the narrow (lo) side
             lo = mid
             continue
-        if abs(bm) < tol or (hi - lo) < 1.0e-5:
+        if abs(bm) < tol:
             return float(mid)
+        if (hi - lo) < 1.0e-5:
+            break
         if (bm > 0) == (fhi > 0):
             hi, fhi = mid, bm
         else:
             lo = mid
-    return float(0.5 * (lo + hi))
+    # Only report a genuine root: if the converged point is not ~zero (the bracket
+    # straddled a discontinuity, not a crossing), report no exact flip.
+    final = eval_lnB(0.5 * (lo + hi))
+    return (
+        float(0.5 * (lo + hi)) if np.isfinite(final) and abs(final) < 10 * tol else None
+    )
 
 
 def _load_pair(model, dataset, args):
@@ -385,7 +395,9 @@ def run_centre_scan(model, dataset, args, catalogue):
     ctx, source, logf = _load_pair(model, dataset, args)
     ext = ctx["ext"]
 
-    centres = np.linspace(p.low, p.high, args.n_centres)
+    # Span the prior range, and force-include the LCDM nesting-point centre so the
+    # headline LCDM-centred slice is always present (np.linspace need not hit it).
+    centres = np.unique(np.append(np.linspace(p.low, p.high, args.n_centres), p.centre))
     for c in centres:
         for f in args.fractions:
             changes = {
