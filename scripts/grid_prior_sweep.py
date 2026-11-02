@@ -156,7 +156,11 @@ def _evaluate(ctx, log_r, logf, frac_sigma=0.0):
     ln_evidence_err = float(np.hypot(ev.log_evidence_err or 0.0, frac_sigma))
     ln_b = ev.log_evidence - ctx["base_logZ"] + logf
     with np.errstate(divide="ignore"):
-        khat = psis(np.log(ctx["ext_weights"]) + log_r).pareto_k
+        log_w = np.log(ctx["ext_weights"]) + log_r
+    # A fully collapsed region (no sample survives) has no tail to fit: report a
+    # non-finite k-hat (so the cell is flagged unreliable) rather than letting psis
+    # raise and abort the task. This happens for deep contractions / off-centre scans.
+    khat = psis(log_w).pareto_k if np.any(np.isfinite(log_w)) else float("nan")
     return {
         "ln_evidence": ev.log_evidence,
         "ln_evidence_err": ln_evidence_err,
@@ -210,39 +214,49 @@ def _exact_flip(eval_lnB, sweep_records, tol=1.0e-3, max_iter=60):
     ``sweep_records`` is a list of ``(fraction, ln_bayes_factor)`` from the dense
     sweep; the widest (largest-fraction) sign change is bracketed and then refined
     by calling ``eval_lnB(fraction)`` (a fresh reweighting) until ``|ln B| < tol``.
-    This replaces the linear interpolation between two sampled points with the true
-    zero of the importance-sampling estimate. Returns the flip fraction, or None if
-    no finite sign change exists.
+    This refines the sampled sign change rather than linearly interpolating it.
+    Returns the flip fraction, or None if no finite sign change exists.
+
+    Caveat: the IS ln B(f) is not continuous in f (samples leave the contracted box
+    at discrete thresholds), so a bracketed sign change need not contain a true zero
+    and multi-crossings are not resolved; this returns the widest *sampled* sign
+    change refined to tolerance, which is why the ``flip_exact`` cell also carries
+    the ESS/Pareto-k at the located width so an unreliable crossing is visible.
+    Non-finite (fully collapsed) points are dropped before bracketing so a crossing
+    is not hidden by an intervening NaN.
     """
-    ordered = sorted(sweep_records, key=lambda r: -r[0])
+    ordered = sorted(
+        (r for r in sweep_records if np.isfinite(r[1])), key=lambda r: -r[0]
+    )
     bracket = None
     for (fa, ba), (fb, bb) in zip(ordered, ordered[1:]):
-        if np.isfinite(ba) and ba == 0.0:
+        if ba == 0.0:
             return float(fa)
-        if np.isfinite(ba) and np.isfinite(bb) and (ba > 0) != (bb > 0):
+        if bb == 0.0:
+            return float(fb)
+        if (ba > 0) != (bb > 0):
             bracket = (fb, fa, bb, ba)  # lo_f, hi_f, lnB(lo), lnB(hi)
             break
     if bracket is None:
         return None
     lo, hi, _, fhi = bracket
-    mid = 0.5 * (lo + hi)
     for _ in range(max_iter):
         mid = 0.5 * (lo + hi)
         bm = eval_lnB(mid)
-        if not np.isfinite(bm):
-            break
+        if not np.isfinite(bm):  # starved midpoint: treat as the narrow (lo) side
+            lo = mid
+            continue
         if abs(bm) < tol or (hi - lo) < 1.0e-5:
             return float(mid)
         if (bm > 0) == (fhi > 0):
             hi, fhi = mid, bm
         else:
             lo = mid
-    return float(mid)
+    return float(0.5 * (lo + hi))
 
 
-def run_pair(model, dataset, args, catalogue):
-    """Run baseline + homothetic sweep + cuts for one (model, dataset) pair."""
-    spec = REGISTRY[model]
+def _load_pair(model, dataset, args):
+    """Load the extended/base chains for a pair and build the reweighting context."""
     ext_fallback = _model_fallback(model, args.primary, args.fallback)
     ext_stem = resolve_chain_stem(
         model, dataset, primary=args.primary, fallback=ext_fallback
@@ -271,6 +285,16 @@ def run_pair(model, dataset, args, catalogue):
         "base_logZ_err": base_logZ_err,
         "args": args,
     }
+    return ctx, source, logf
+
+
+def run_pair(model, dataset, args, catalogue):
+    """Run baseline + homothetic sweep + cuts for one (model, dataset) pair."""
+    spec = REGISTRY[model]
+    ctx, source, logf = _load_pair(model, dataset, args)
+    ext = ctx["ext"]
+    ext_logZ, ext_logZ_err = ctx["ext_logZ"], ctx["ext_logZ_err"]
+    base_logZ, base_logZ_err = ctx["base_logZ"], ctx["base_logZ_err"]
 
     # Baseline (direct nested evidences).
     catalogue.save(
@@ -330,6 +354,8 @@ def run_pair(model, dataset, args, catalogue):
     for cut in spec.cuts:
         box = [(spec.params[c].low, spec.params[c].high) for c in cut.columns]
         frac = region_volume_fraction(cut.inside, box, n_mc=args.n_mc)
+        if frac <= 0.0:  # empty region: no prior volume, skip rather than divide by 0
+            continue
         values = np.column_stack([np.asarray(ext[c], float) for c in cut.columns])
         in_region = np.asarray(cut.inside(values), dtype=bool)
         log_r = np.where(in_region, -np.log(frac), -np.inf)
@@ -338,6 +364,48 @@ def run_pair(model, dataset, args, catalogue):
         catalogue.save(_cell(ctx, cut.method, {"kind": cut.kind}, m, log_r))
 
     return source, ext_logZ - base_logZ + logf, ff
+
+
+def run_centre_scan(model, dataset, args, catalogue):
+    """Scan the contraction centre as well as the width (the bias cross-check).
+
+    For a one-parameter extension, reweight over a grid of (centre, width): the
+    homothetic prior is contracted about each centre, not only the LCDM nesting
+    point. The LCDM-centred slice is the headline diagnostic; the min/max over
+    centres at each width is the envelope that reveals how much the verdict depends
+    on where the prior is concentrated. One reweighting per grid node, no new
+    likelihood calls. Two-parameter models are skipped (a 2D centre grid is a
+    separate, heavier job).
+    """
+    spec = REGISTRY[model]
+    if len(spec.params) != 1:
+        print(f"[skip] {model} {dataset}: centre-scan is one-parameter only")
+        return None
+    (p,) = tuple(spec.params.values())
+    ctx, source, logf = _load_pair(model, dataset, args)
+    ext = ctx["ext"]
+
+    centres = np.linspace(p.low, p.high, args.n_centres)
+    for c in centres:
+        for f in args.fractions:
+            changes = {
+                p.column: {
+                    "base": {"type": "uniform", "min": p.low, "max": p.high},
+                    "new": shrink_uniform((p.low, p.high), f, float(c)),
+                }
+            }
+            log_r = prior_log_ratio(ext, changes)
+            m = _evaluate(ctx, log_r, logf)
+            catalogue.save(
+                _cell(
+                    ctx,
+                    "centre_scan",
+                    {"centre": round(float(c), 5), "fraction": round(float(f), 5)},
+                    m,
+                    log_r,
+                )
+            )
+    return source, len(centres) * len(args.fractions)
 
 
 def main():
@@ -378,6 +446,12 @@ def main():
     parser.add_argument(
         "--merge", action="store_true", help="merge shards into summary.csv and exit"
     )
+    parser.add_argument(
+        "--centre-scan",
+        action="store_true",
+        help="scan centre x width for one-parameter models (bias cross-check)",
+    )
+    parser.add_argument("--n-centres", type=int, default=21)
     args = parser.parse_args()
 
     if args.n_fractions is not None:
@@ -416,11 +490,17 @@ def main():
         shard = None if args.task_index is None else f"{model}__{dataset}"
         catalogue = Catalogue(cat_root, shard=shard)
         try:
-            source, lnb, ff = run_pair(model, dataset, args, catalogue)
-            print(
-                f"[ok] {model:10s} {dataset:55s} [{source}] "
-                f"baseline lnB {lnb:+.3f}  flip {ff}"
-            )
+            if args.centre_scan:
+                result = run_centre_scan(model, dataset, args, catalogue)
+                if result is not None:
+                    source, n = result
+                    print(f"[ok] {model:10s} {dataset:55s} [{source}] {n} scan nodes")
+            else:
+                source, lnb, ff = run_pair(model, dataset, args, catalogue)
+                print(
+                    f"[ok] {model:10s} {dataset:55s} [{source}] "
+                    f"baseline lnB {lnb:+.3f}  flip {ff}"
+                )
         except Exception as exc:  # keep the array task alive, record the failure
             print(f"[FAIL] {model} {dataset}: {type(exc).__name__}: {exc}")
 

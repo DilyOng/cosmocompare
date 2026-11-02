@@ -238,20 +238,23 @@ def flip_fraction(records):
         When several crossings exist, the one at the largest fraction (widest
         prior) is returned.
     """
-    ordered = sorted(records, key=lambda r: r["fraction"], reverse=True)
+    # Drop non-finite cells (an infinite Bayes factor from a prior narrowed until
+    # no sample survives) *before* pairing, not by skipping adjacent pairs: skipping
+    # would break the chain and hide a crossing that straddles an intervening NaN
+    # (e.g. +2 at f=0.9, NaN at 0.8, -2 at 0.7). Filtering first makes 0.9 and 0.7
+    # adjacent so the sign change is still found.
+    ordered = sorted(
+        (r for r in records if np.isfinite(r["log_bayes_factor"])),
+        key=lambda r: r["fraction"],
+        reverse=True,
+    )
     # An exact zero at a sampled width is itself the crossing.
     for r in ordered:
         if r["log_bayes_factor"] == 0:
             return float(r["fraction"])
     for a, b in zip(ordered, ordered[1:]):
         fa, fb = a["log_bayes_factor"], b["log_bayes_factor"]
-        # Skip any non-finite cell, not just NaN: an infinite Bayes factor (for
-        # example a prior narrowed until no sample survives) would otherwise pass
-        # the sign-change test and make the linear interpolation t = fa/(fa-fb)
-        # return NaN or a spurious crossing.
-        if not (np.isfinite(fa) and np.isfinite(fb)):
-            continue
-        if (fa < 0) != (fb < 0):  # sign change between adjacent fractions
+        if (fa < 0) != (fb < 0):  # sign change between adjacent finite fractions
             # Linear interpolation of fraction at log_bayes_factor == 0.
             t = fa / (fa - fb)
             return float(a["fraction"] + t * (b["fraction"] - a["fraction"]))
