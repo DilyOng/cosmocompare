@@ -47,5 +47,6 @@ python $HOME/cosmocompare_src/scripts/grid_prior_sweep.py \
     ${NFRAC:+--n-fractions $NFRAC} \
     ${CENTRESCAN:+--centre-scan} \
     ${NCENTRES:+--n-centres $NCENTRES} \
+    ${SKIP:+--skip-existing} \
     --task-index ${SLURM_ARRAY_TASK_ID} \
     --nsamples 1000 --n-bootstrap 1000 --n-mc 1000000 --seed 0

@@ -231,7 +231,12 @@ class Catalogue:
         # dtypes); when the table is empty the new row is the table.
         df = new if df.empty else pd.concat([df, new], ignore_index=True)
         df = df[list(SUMMARY_COLUMNS)]
-        df.to_csv(self.summary_path, index=False)
+        # Write to a unique temp name then atomically rename, so a killed process
+        # cannot leave a half-written shard CSV that a resume (or the final merge)
+        # would then fail to parse. Mirrors the .npz cache write above.
+        tmp = self.summary_path.parent / f"{self.summary_path.name}.{os.getpid()}.tmp"
+        df.to_csv(tmp, index=False)
+        os.replace(tmp, self.summary_path)
         return cid
 
     def load_summary(self):

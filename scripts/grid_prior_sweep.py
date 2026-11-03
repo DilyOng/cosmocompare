@@ -420,6 +420,62 @@ def run_centre_scan(model, dataset, args, catalogue):
     return source, len(centres) * len(args.fractions)
 
 
+def _expected_centre_scan_ids(model, dataset, args, base_model):
+    """Return the cell_ids a centre-scan pair *should* write, or None if N/A.
+
+    Computed from the model spec and CLI args alone - no chains are loaded - so a
+    resume can decide, for free, whether a pair's shard is already complete. The
+    ``(centre, fraction)`` grid and rounding mirror :func:`run_centre_scan` exactly,
+    and ``cell_id`` depends only on the identifying key
+    ``(model, base_model, dataset, prior_method, prior_params, estimator)``, none of
+    which touch the data. Returns None for a non-one-parameter model (which the
+    centre-scan skips), so such a pair is never falsely judged complete.
+    """
+    spec = REGISTRY[model]
+    if len(spec.params) != 1:
+        return None
+    (p,) = tuple(spec.params.values())
+    centres = np.unique(np.append(np.linspace(p.low, p.high, args.n_centres), p.centre))
+    ids = set()
+    for c in centres:
+        for f in args.fractions:
+            params = {"centre": round(float(c), 5), "fraction": round(float(f), 5)}
+            ids.add(
+                Cell(
+                    model=model,
+                    base_model=base_model,
+                    dataset=dataset,
+                    prior_method="centre_scan",
+                    prior_params=params,
+                    estimator="is_ratio",
+                ).cell_id()
+            )
+    return ids
+
+
+def _centre_scan_complete(model, dataset, args, catalogue):
+    """True iff every expected centre-scan cell is already present in the shard.
+
+    The check requires *all* expected cell_ids to be present, so a shard left
+    partial by a killed task (missing some ids) is not complete and the pair is
+    re-run; :meth:`Catalogue.save` is idempotent per cell_id, so the re-run simply
+    fills the gaps. Returns False for a model the centre-scan does not cover.
+    """
+    expected = _expected_centre_scan_ids(model, dataset, args, args.base_model)
+    if not expected:
+        return False
+    try:
+        summary = catalogue.load_summary()
+    except Exception:
+        # A shard left truncated by a kill (the write is atomic now, but an older
+        # run may predate that) is treated as incomplete, so the pair is re-run and
+        # save() rewrites it cleanly rather than the resume task crashing here.
+        return False
+    if summary.empty or "cell_id" not in summary.columns:
+        return False
+    return expected <= set(summary["cell_id"].astype(str))
+
+
 def main():
     """Enumerate the grid and run one pair (array) or all pairs (sequential)."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -464,6 +520,13 @@ def main():
         help="scan centre x width for one-parameter models (bias cross-check)",
     )
     parser.add_argument("--n-centres", type=int, default=21)
+    parser.add_argument(
+        "--skip-existing",
+        action="store_true",
+        help="skip a centre-scan pair whose shard already holds every expected "
+        "cell (for resuming an interrupted run on another allocation); a shard "
+        "left partial by a killed task is missing cells and is re-run to completion",
+    )
     args = parser.parse_args()
 
     if args.n_fractions is not None:
@@ -501,6 +564,13 @@ def main():
     for model, dataset in pairs:
         shard = None if args.task_index is None else f"{model}__{dataset}"
         catalogue = Catalogue(cat_root, shard=shard)
+        if (
+            args.skip_existing
+            and args.centre_scan
+            and _centre_scan_complete(model, dataset, args, catalogue)
+        ):
+            print(f"[skip-existing] {model:10s} {dataset:55s} already complete")
+            continue
         try:
             if args.centre_scan:
                 result = run_centre_scan(model, dataset, args, catalogue)
